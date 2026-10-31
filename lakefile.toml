@@ -1,0 +1,14 @@
+name = "paradox"
+defaultTargets = ["Paradox", "paradox"]
+
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+rev = "v4.35.0"
+
+[[lean_lib]]
+name = "Paradox"
+
+[[lean_exe]]
+name = "paradox"
+root = "Main"
