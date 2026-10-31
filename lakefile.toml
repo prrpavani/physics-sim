@@ -1,0 +1,11 @@
+name = "paradox"
+version = "0.1.0"
+defaultTargets = ["Paradox", "paradox"]
+
+# The physics engine, its safety rules, and their proofs. No Mathlib: core Lean is enough.
+[[lean_lib]]
+name = "Paradox"
+
+[[lean_exe]]
+name = "paradox"
+root = "Main"
