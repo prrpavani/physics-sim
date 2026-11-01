@@ -141,7 +141,7 @@ theorem safeChaos_allowed (rate seed n : Nat) (w : World) :
     refine ⟨?_, ih _ _⟩
     unfold chaosEventOf
     split
-    · exact safeEventOf_allowed _ w
+    · exact safeEventOf_allowed (nextSeed seed) w
     · exact trivial
 
 /-- **Safe chaos keeps every guarantee**, however much of it there is. -/
@@ -300,7 +300,7 @@ theorem generateWorld_guaranteed (seed : Nat) : Guaranteed (generateWorld seed) 
   | safeEnvironment => exact hsafe
   | uniqueIds =>
     constructor
-    · simp only [Property.holds, UniqueIds, generateWorld_bodies]
+    · simp only [generateWorld_bodies]
       rw [worldBodies_ids]
       exact List.nodup_range
     · intro b hb
