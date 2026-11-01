@@ -1,17 +1,11 @@
 import Paradox.Api.Server
-import Paradox.Api.Fixtures
 
-open Paradox.Api
-
-/-- `paradox serve [port]` runs the API. `paradox fixtures [dir]` writes fixtures. -/
+/-- `paradox serve [port]` runs the app. -/
 def main (args : List String) : IO UInt32 := do
   match args with
-  | ["fixtures"] => writeFixtures "shared/fixtures"; return 0
-  | ["fixtures", dir] => writeFixtures dir; return 0
   | "serve" :: rest =>
-    let port := (rest.head?.bind String.toNat?).getD 8787
-    serve port.toUInt16
+    Paradox.Api.serve ((rest.head?.bind String.toNat?).getD 8787).toUInt16
     return 0
   | _ =>
-    IO.eprintln "usage: paradox serve [port] | paradox fixtures [dir]"
+    IO.eprintln "usage: paradox serve [port]"
     return 1

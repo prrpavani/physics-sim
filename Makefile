@@ -1,4 +1,4 @@
-.PHONY: install run build test fixtures demo frontend comparator
+.PHONY: install run build frontend comparator
 
 # Fetch the prebuilt Mathlib cache (about 7 GB), then build and check every proof and test.
 install:
@@ -11,19 +11,6 @@ run:
 
 build:
 	lake build
-
-# Proofs, tests and audits all run during the build. A failure stops it.
-test:
-	lake build
-	lake exe paradox fixtures shared/fixtures
-
-# Regenerate the real request and response files for frontend development.
-fixtures:
-	lake exe paradox fixtures shared/fixtures
-
-# Run the demo story against a running backend.
-demo:
-	./scripts/demo.sh
 
 # Rebuild the UI in web/ after changing apps/frontend. Needs Node.
 frontend:

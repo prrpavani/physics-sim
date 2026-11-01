@@ -1,13 +1,10 @@
-import Paradox.Rules.Random
-import Paradox.Verification.LawAudit
-import Paradox.Consistency.Transitions
+import Paradox.Verdict
 
 /-!
 # The statements PARADOX stands behind
 
-This file is for reading. It lists the main results, with no proofs. `Solution.lean` proves these
-exact statements, and `lake comparator` checks that independently of the rest of the project. See
-`comparator.json`.
+This file is for reading. It lists the main results, with no proofs. `Solution.lean` proves these exact
+statements, and `lake comparator` checks that independently of the rest of the project.
 
 Do not import this file: every `sorry` here is deliberate and is replaced in `Solution.lean`.
 -/
@@ -16,109 +13,73 @@ namespace Paradox.Comparator
 
 open Paradox
 
-/-- A guarantee survives any finite list of permitted events. -/
-theorem run_inv (p : Property) (w : World) (events : List EnvironmentEvent)
-    (hw : Inv p w) (htrace : Engine.AllowedTrace step Allowed w events) : Inv p (run w events) :=
+/-- Objects stay inside the world, whatever the laws are. -/
+theorem stays_inside {w : World} (h : WellFormed w) : StaysInside (tick w) :=
   sorry
 
-/-- All guarantees survive any finite list of permitted events. -/
-theorem guaranteed_run (w : World) (events : List EnvironmentEvent) (hw : Guaranteed w)
-    (htrace : Engine.AllowedTrace step Allowed w events) : Guaranteed (run w events) :=
+/-- Objects stay inside at every step. -/
+theorem stays_inside_forever (n : Nat) {w : World} (h : WellFormed w) (hs : StaysInside w) :
+    StaysInside (run n w) :=
   sorry
 
-/-- A guarantee holds whatever order the rules run in. -/
-theorem next_inv (p : Property) (e : EnvironmentEvent) (w : World) (ha : Allowed w e) (hw : Inv p w)
-    {w' : World} (hn : Next e w w') : Inv p w' :=
+/-- The speed limit holds after every step, if the laws are speed safe. -/
+theorem speedLimit_holds {w : World} (hok : LawsOk w.laws) (hs : SpeedSafe w.laws) :
+    WithinSpeedLimit (tick w) :=
   sorry
 
-/-- In protected mode, no list of events can break a guarantee. -/
-theorem protectedRun_safe (p : Property) (w : World) (events : List EnvironmentEvent) (h : Inv p w) :
-    Inv p (protectedRun w events) :=
+/-- The speed limit holds at every step. -/
+theorem speedLimit_forever (n : Nat) {w : World} (h : WellFormed w) (hs : SpeedSafe w.laws)
+    (hv : WithinSpeedLimit w) : WithinSpeedLimit (run n w) :=
   sorry
 
-/-- Any constraint can be enforced by refusing changes that would break it. -/
-theorem enforcedRun_holds (cs : List Constraint) (w : World) (events : List EnvironmentEvent)
-    (h : ∀ c ∈ cs, c.holds w) : ∀ c ∈ cs, c.holds (enforcedRun cs w events) :=
+/-- With Newton's third law on, the pull keeps total momentum along any direction. -/
+theorem momentum_holds (l : Laws) (hl : MomentumSafe l) (c : Vec3) (bs : List Body)
+    (hm : ∀ b ∈ bs, 0 < b.mass) : totalMomentum c (pullStage l bs) = totalMomentum c bs :=
   sorry
 
-/-- Every seeded random experiment keeps every guarantee. -/
-theorem random_chaos_safe (seed n : Nat) (w : World) (h : Guaranteed w) :
-    Guaranteed (run w (safeEvents seed n)) :=
+/-- Momentum between objects is kept at every step. -/
+theorem momentum_forever (n : Nat) {w : World} (h : WellFormed w) (hs : MomentumSafe w.laws) :
+    MomentumKept (run n w) :=
   sorry
 
-/-- The universe from any seed starts with every guarantee true. -/
-theorem generateWorld_guaranteed (seed : Nat) : Guaranteed (generateWorld seed) :=
+/-- With nothing pushing and nothing adding speed, energy can never rise. -/
+theorem energy_never_rises {w : World} (hw : WellFormed w) (hs : EnergySafe w.laws) :
+    totalEnergy (tick w).bodies ≤ totalEnergy w.bodies :=
   sorry
 
-/-- If the rule checker clears a rule, the rule keeps the guarantee. -/
-theorem keeps_sound (prev : World) (p : Property) (r : Rule) (w : World) (hk : r.keeps p = true)
-    (he : SafeEnvironment w) (hp : p.holds w) : p.holds (r.eval prev w) :=
+/-- Energy never rises, over any number of steps. -/
+theorem energy_forever (n : Nat) {w : World} (h : WellFormed w) (hs : EnergySafe w.laws) :
+    totalEnergy (run n w).bodies ≤ totalEnergy w.bodies :=
   sorry
 
-/-- A checked counterexample really happens and really breaks the claim. -/
-theorem checkTrace_sound {scope : EventScope} {claim : Claim} {t : WorldTrace}
-    (h : checkTrace scope claim t = true) :
-    InScope scope t.initial t.events ∧ ¬ claim.holds t.initial (run t.initial t.events) :=
+/-- Between the walls, a move is exactly position plus time times velocity. -/
+theorem free_motion {e dt lo hi p v : ℚ} (h1 : lo ≤ p + dt * v) (h2 : p + dt * v ≤ hi) :
+    moveAxis e dt lo hi p v = (p + dt * v, v) :=
   sorry
 
-/-- A `proven` verdict from the API is correct. -/
-theorem verifyProperty_proven {limits : SearchLimits} {p : Property} {w : World}
-    (h : (verifyProperty limits p w).status = .proven) (events : List EnvironmentEvent)
-    (htrace : Engine.AllowedTrace step Allowed w events) : p.holds (run w events) :=
+/-- At a wall, an object stops there and its velocity becomes -e · v. -/
+theorem wall_bounce {e dt lo hi p v : ℚ} (h1 : lo ≤ p + dt * v) (h2 : hi < p + dt * v) :
+    moveAxis e dt lo hi p v = (hi, -(e * v)) :=
   sorry
 
-/-- A counterexample in a verdict has passed the checker. -/
-theorem verifyProperty_counterexample {limits : SearchLimits} {p : Property} {w : World} {t : WorldTrace}
-    (h : (verifyProperty limits p w).counterexample = some t) :
-    checkTrace .allowed (.property p) t = true :=
+/-- A checked counterexample is real. -/
+theorem checkTrace_sound {p : Promise} {t : Trace} (h : checkTrace p t = true) :
+    FairStart t.start ∧ ¬ p.Holds t.start (run t.states.length t.start) :=
   sorry
 
-/-- With Newton's third law on, every invented force law keeps total momentum. -/
-theorem pairForces_conserve_momentum (laws : PhysicsLaws) (hr : laws.reaction = 1) (c : Vec3) (l : List Body)
-    (hl : ∀ x ∈ l, 0 < x.mass) :
-    totalMomentum c (pairAll (forcePair laws) l) = totalMomentum c l :=
+/-- A Proven card is correct. -/
+theorem verdict_proven_sound {p : Promise} {w : World} (h : (verdict p w).1 = .proven) (n : Nat) :
+    p.Holds w (run (n + 1) w) :=
   sorry
 
-/-- Forces between bodies and momentum-keeping collisions never change total momentum. -/
-theorem interaction_conserves_momentum (laws : PhysicsLaws) (hr : laws.reaction = 1)
-    (hm : laws.collisions.KeepsMomentum) (c : Vec3) (nextId : Nat) (l : List Body)
-    (hl : ∀ x ∈ l, 0 < x.mass) :
-    totalMomentum c (collisionStage laws nextId (pairAll (forcePair laws) l)).1 =
-      totalMomentum c l :=
+/-- A counterexample on a card has passed the checker. -/
+theorem verdict_counterexample_sound {p : Promise} {w : World} {t : Trace}
+    (h : (verdict p w).2 = some t) : checkTrace p t = true :=
   sorry
 
-/-- With no forces, total kinetic energy can only stay level or fall. -/
-theorem idleRun_energy_le (n : Nat) (w : World) (hrules : w.rules = []) (hf : w.laws.NoForces)
-    (hc : w.laws.collisions = .none ∨ w.laws.collisions = .bounce)
-    (he : SafeEnvironment w) (hpos : PositiveMass w) (hr1 : w.laws.massRate ≤ 1) :
-    totalEnergy (run w (idleEvents n)).bodies ≤ totalEnergy w.bodies :=
-  sorry
-
-/-- Total mass stays the same as time passes, under the stated laws. -/
-theorem idleRun_conserves_mass (n : Nat) (w : World) (hrules : w.rules = [])
-    (hr : w.laws.massRate = 1) (hm : w.laws.collisions.NoCreation) (hpos : PositiveMass w) :
-    totalMass (run w (idleEvents n)).bodies = totalMass w.bodies :=
-  sorry
-
-/-- A returned example universe really meets every constraint. -/
-theorem checkConstraints_satisfiable {base : World} {cs : List Constraint} {w : World}
-    (h : checkConstraints base cs = .satisfiable w) : Valid base cs w :=
-  sorry
-
-/-- A reported contradiction means no valid universe exists. -/
-theorem checkConstraints_contradiction {base : World} {cs : List Constraint} {a b : Constraint}
-    (h : checkConstraints base cs = .contradiction a b) : ¬ ∃ w, Valid base cs w :=
-  sorry
-
-/-- A formula that passes the division check has a defined value. -/
-theorem divisionsSafe_sound (i : LawInputs) (hm : 0 < i.massA) (hd : 0 ≤ i.distSquared)
-    (hs : 0 ≤ i.speedSquared) (e : LawExpr) (h : e.divisionsSafe = true) :
-    e.evalChecked i = some (e.eval i) :=
-  sorry
-
-/-- A reported rule conflict is real. -/
-theorem orderStatus_conflict {w : World} {a b : Rule} (h : orderStatus w a b = .conflict) :
-    b.eval w (a.eval w w) ≠ a.eval w (b.eval w w) :=
+/-- With the lock on, nothing anyone does can break the speed limit. -/
+theorem locked_run_safe (w : World) (changes : List (Option Laws)) (hw : WellFormed w)
+    (hs : SpeedSafe w.laws) (hv : WithinSpeedLimit w) : WithinSpeedLimit (lockedRun w changes) :=
   sorry
 
 end Paradox.Comparator

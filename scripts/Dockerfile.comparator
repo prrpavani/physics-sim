@@ -1,7 +1,7 @@
 # Linux environment for `lake check` and `lake comparator`, which need `bwrap`.
 FROM ubuntu:24.04
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    bubblewrap ca-certificates clang curl git libc6-dev lld python3
+    bubblewrap ca-certificates clang curl git libc6-dev lld make
 RUN curl -sSf https://elan.lean-lang.org/elan-init.sh | sh -s -- -y --default-toolchain none
 ENV PATH=/root/.elan/bin:$PATH
 # The sandbox binds this path, and it does not exist in a bare container.

@@ -33,6 +33,11 @@ def staticPath (route : String) : Option String :=
   let known := [".html", ".js", ".css", ".json", ".svg", ".woff2", ".woff", ".png"].any (fun ext => path.endsWith ext)
   if noParentDirs && known then some s!"web{path}" else none
 
+/-- The text of the files holding the proofs the app shows. -/
+def proofSources : IO (List String) :=
+  ["Paradox/Proofs.lean", "Paradox/Verdict.lean"].mapM fun f => do
+    try IO.FS.readFile f catch _ => pure ""
+
 /-- Serve the API on this machine until the process is stopped. -/
 def serve (port : UInt16) : IO Unit := Async.block do
   let handler := Server.Handler.ofFn fun req => do
@@ -55,7 +60,8 @@ def serve (port : UInt16) : IO Unit := Async.block do
         |>.text ""
     else
       let body : String ← req.body.readAll (maximumSize := some (.ofNat maxRequestBytes))
-      let reply := handle method path body
+      let sources ← if path == "/api/proofs" then proofSources else pure []
+      let reply := handle method path body sources
       let builder := match reply.code with
         | 200 => Response.ok
         | 404 => Response.notFound
@@ -65,7 +71,7 @@ def serve (port : UInt16) : IO Unit := Async.block do
         |>.json reply.body.compress
   let addr : Net.SocketAddress := .v4 (.mk (.ofParts 127 0 0 1) port)
   let _server ← Server.serve addr handler
-  IO.println s!"PARADOX is running at http://127.0.0.1:{port} (contract {contractVersion})"
+  IO.println s!"PARADOX is running at http://127.0.0.1:{port}"
   repeat
     Async.sleep 3600000
 

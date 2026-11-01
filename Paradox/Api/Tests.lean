@@ -2,38 +2,18 @@ import Paradox.Api.Routes
 import Paradox.Verification.Examples
 
 /-!
-# Tests of the JSON contract and the router
+# Tests of the wire format and the routes
 -/
 
 namespace Paradox.Api
 
 open Lean (Json)
 
-/-- A world with some of everything. -/
-def fullWorld : World :=
-  { testWorld [testBody 0 ⟨1 / 3, -2, 0⟩ ⟨1 / 7, 0, 3⟩ (5 / 2)]
-      { testLaws with
-        pairForce := strangeLaw
-        drag := .const (1 / 10)
-        topology := .torus
-        metric := .chebyshev
-        collisions := .merge
-        fields := [⟨defaultBounds, ⟨1, 2, 3⟩⟩] }
-    with
-    regions := [⟨"r", "red", defaultBounds, 1 / 2⟩]
-    portals := [⟨defaultBounds, none, .scale 2⟩, ⟨defaultBounds, some ⟨1, 1, 1⟩, .rotate⟩]
-    rules := [.seq (.when .gravityChanged (.body (.not (.onColor "red")) .clampVelocity))
-      (.world (.setPairForce .dist))]
-    tick := 9 }
-
 -- Everything survives a round trip through the wire format, exactly.
-#guard (decWorld (encWorld fullWorld)).toOption == some fullWorld
-#guard (decWorld (Json.parse (encWorld fullWorld).compress |>.toOption |>.getD .null)).toOption == some fullWorld
-#guard ([.idle, .setPairForce strangeLaw, .addRule (.create (testBody 3 ⟨0, 0, 0⟩ Vec3.zero)),
-    .addPortal ⟨defaultBounds, none, .reverse⟩, .setCollisions .spawn, .setBodyState 1 ⟨1, 2, 3⟩ ⟨4, 5, 6⟩] :
-    List EnvironmentEvent).all fun e => (decEvent (encEvent e)).toOption == some e
+#guard (decWorld (encWorld startWorld)).toOption == some startWorld
+#guard (decWorld (Json.parse (encWorld startWorld).compress |>.toOption |>.getD .null)).toOption == some startWorld
 
--- Rationals are read exactly, in every accepted form.
+-- Rationals are read exactly, in every accepted form, and bad ones are refused.
 #guard (decRat (Json.str "49/10")).toOption == some (49 / 10)
 #guard (decRat (Json.str "-3")).toOption == some (-3)
 #guard (decRat (Json.str "0.1")).toOption == some (1 / 10)
@@ -42,70 +22,36 @@ def fullWorld : World :=
 #guard (decRat (Json.str "1/0")).toOption == none
 #guard (decRat (Json.str "abc")).toOption == none
 #guard encRat (49 / 10) == Json.str "49/10"
-#guard encRat 3 == Json.str "3"
 
 /-- The HTTP status of a request. -/
 def codeOf (method path body : String) : Nat :=
-  (handle method path body).code
+  (handle method path body []).code
 
-/-- A field of the answer to a request. -/
-def answer (path : String) (body : Json) (key : String) : Json :=
-  ((handle "POST" path body.compress).body.getObjVal? key).toOption.getD .null
+/-- A field of the answer to a run request. -/
+def runField (laws : Laws) (locked : Bool) (key : String) : Json :=
+  let req := Json.mkObj [("world", encWorld startWorld), ("steps", (2 : Nat)), ("locked", Json.bool locked),
+    ("laws", encLaws laws)]
+  ((handle "POST" "/api/run" req.compress []).body.getObjVal? key).toOption.getD .null
 
-#guard codeOf "GET" "/api/health" "" == 200
+#guard codeOf "POST" "/api/create" "" == 200
 #guard codeOf "GET" "/nope" "" == 404
-#guard codeOf "POST" "/api/universe/step" "not json" == 400
-#guard codeOf "POST" "/api/universe/step" "{}" == 400
-#guard codeOf "POST" "/api/universe/create" "{\"preset\":\"nope\"}" == 400
+#guard codeOf "POST" "/api/run" "not json" == 400
+#guard codeOf "POST" "/api/run" "{}" == 400
+#guard codeOf "POST" "/api/run"
+  (Json.mkObj [("world", encWorld startWorld), ("steps", (100000 : Nat)), ("locked", Json.bool true)]).compress == 400
 
--- Every preset starts with its guarantees intact, and every route answers.
-#guard presets.all fun p => decide (Guaranteed (presetWorld p 42))
-#guard presets.all fun p =>
-  answer "/api/universe/create" (Json.mkObj [("preset", p.name), ("seed", (5 : Nat))]) "guaranteed"
-    == Json.bool true
-#guard (presets.map (·.name)).length == 20
+-- The lock answers through the API, and an invalid universe is refused by the verdict route.
+#guard runField { startLaws with multiplier := 100 } true "decision" == "repaired"
+#guard runField { startLaws with multiplier := 100 } false "decision" == "accepted"
+#guard runField { startLaws with maxSpeed := -1 } true "decision" == "refused"
+#guard codeOf "POST" "/api/verdicts"
+  (Json.mkObj [("world", encWorld { startWorld with laws.maxSpeed := -1 })]).compress == 400
 
-/-- A stepping request. -/
-def stepRequest (e : EnvironmentEvent) (mode : String) : Json :=
-  Json.mkObj [("world", encWorld oneBody), ("event", encEvent e), ("mode", mode)]
+-- Each theorem's text is found in the source, and only that theorem's block.
+def sampleSource : String :=
+  "/-- First. -/\ntheorem alpha : True := trivial\n\n/-- Second. -/\ntheorem beta : True := trivial"
 
--- Unprotected mode reports the broken guarantee; protected mode rejects the event.
-#guard answer "/api/universe/step" (stepRequest (.changeMaxSpeed (-1)) "unprotected") "violations" ==
-  Json.arr #["boundedVelocity", "safeEnvironment"]
-#guard answer "/api/universe/step" (stepRequest (.changeMaxSpeed (-1)) "protected") "violations" ==
-  Json.arr #[]
-
--- A guarantee's frame status tells apart what is promised, what merely holds, and what broke.
-#guard guaranteeStatus .boundedVelocity (testWorld [testBody 0 ⟨0, 0, 0⟩ Vec3.zero]) == "proven"
-#guard guaranteeStatus .boundedVelocity (testWorld [testBody 0 ⟨0, 0, 0⟩ ⟨99, 0, 0⟩]) == "violated"
-#guard guaranteeStatus .boundedVelocity { testWorld [testBody 0 ⟨0, 0, 0⟩ Vec3.zero] with
-  rules := [.body .all (.scaleVelocity 2)] } == "unknown"
-
--- Chaos is reproducible, follows its rate, and carries on from where it stopped.
-#guard chaosEvents safeEventOf 1000 7 5 == chaosEvents safeEventOf 1000 7 5
-#guard chaosEvents safeEventOf 0 7 5 == List.replicate 5 .idle
-#guard chaosEvents safeEventOf 1000 7 5 ==
-  chaosEvents safeEventOf 1000 7 2 ++ chaosEvents safeEventOf 1000 (chaosSeedAfter 7 2) 3
-
--- A formula's status comes back with its curve.
-#guard answer "/api/universe/check-formula"
-  (Json.mkObj [("formula", encExpr (.div (.const 1) .dist))]) "status" == "underspecified"
-#guard answer "/api/universe/check-formula"
-  (Json.mkObj [("formula", encExpr (.div (.const 1) (.add (.const 1) .dist)))]) "status" == "proven"
-
--- Limits are enforced.
-#guard codeOf "POST" "/api/universe/run"
-  (Json.mkObj [("world", encWorld oneBody), ("steps", (100000 : Nat))]).compress == 400
-
--- Work limits hold, and lowering search limits still leaves a working search.
-#guard (fitLimits (testWorld ((List.range 200).map fun i => testBody i ⟨0, 0, 0⟩ Vec3.zero)) {}).budget == 0
-#guard (fitLimits oneBody {}).budget == 2000
-
-/-- A formula with too many stacked powers. -/
-def towerFormula : LawExpr :=
-  .pow (.pow (.pow .dist 16) 16) 16
-
-#guard !formulaOk towerFormula
-#guard codeOf "POST" "/api/universe/step" (stepRequest (.setPairForce towerFormula) "protected").compress == 400
+#guard proofBlock sampleSource "Paradox.beta" == some "/-- Second. -/\ntheorem beta : True := trivial"
+#guard proofBlock sampleSource "gamma" == none
 
 end Paradox.Api

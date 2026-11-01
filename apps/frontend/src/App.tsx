@@ -1,31 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Universe } from "./scene/Universe";
 import { useStore } from "./store";
-import { TopBar } from "./panels/TopBar";
-import { Dock } from "./panels/Dock";
-import { Inspector } from "./panels/Inspector";
-import { Transport } from "./panels/Transport";
-import { ReplayBar } from "./panels/ReplayBar";
-import { Toasts } from "./panels/Toasts";
-import { ProofExplorer } from "./panels/ProofExplorer";
-import { Tour } from "./panels/Tour";
+import { LawsPanel } from "./panels/LawsPanel";
+import { ProofPanel } from "./panels/ProofPanel";
+import { Controls, ReplayBar } from "./panels/Controls";
 
 export function App() {
   const init = useStore(s => s.init);
   const error = useStore(s => s.error);
-  const ready = useStore(s => s.ready);
-  const [tourOpen, setTourOpen] = useState(false);
+  const notice = useStore(s => s.notice);
+  const locked = useStore(s => s.locked);
+  const setLocked = useStore(s => s.setLocked);
 
   useEffect(() => { void init(); }, [init]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
-      const s = useStore.getState();
-      if (e.code === "Space") { e.preventDefault(); s.setPlaying(!s.playing); }
-      if (e.key === "." && !s.playing) s.stepOnce();
-      if (e.key === "Escape") { s.closeExplorer(); s.select(null); }
+      if ((e.target as HTMLElement).tagName === "INPUT") return;
+      if (e.code === "Space") { e.preventDefault(); const s = useStore.getState(); s.setPlaying(!s.playing); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -34,20 +26,20 @@ export function App() {
   return (
     <div className="app">
       <div className="viewport"><Universe /></div>
-      <TopBar onTour={() => setTourOpen(o => !o)} />
-      <Dock />
-      <Inspector />
-      <Transport />
+      <header className="topbar">
+        <div className="brand"><span className="wordmark">PARADOX</span><span className="tagline">Change the laws of a universe. See what Lean can prove.</span></div>
+        <label className={`lock ${locked ? "on" : ""}`} title="When on, changes that could break the speed limit are repaired. When off, anything goes.">
+          <input type="checkbox" checked={locked} onChange={e => setLocked(e.target.checked)} />
+          <span className="track" aria-hidden />
+          Keep it consistent
+        </label>
+      </header>
+      <LawsPanel />
+      <ProofPanel />
+      <Controls />
       <ReplayBar />
-      <Toasts />
-      <ProofExplorer />
-      {tourOpen && <Tour onClose={() => setTourOpen(false)} />}
-      {error && (
-        <div className="fatal" role="alert">
-          <strong>{ready ? "The backend reported a problem" : "No connection to the universe"}</strong>
-          <span>{error}</span>
-        </div>
-      )}
+      {notice && <div className="notice" role="status">{notice}</div>}
+      {error && <div className="fatal" role="alert"><strong>There is a problem</strong><span>{error}</span></div>}
     </div>
   );
 }

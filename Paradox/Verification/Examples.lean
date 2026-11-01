@@ -1,361 +1,162 @@
-import Paradox.Rules.Random
-import Paradox.Verification.LawAudit
-import Paradox.Consistency.Transitions
+import Paradox.Start
 
 /-!
 # Sanity checks on the theorems
 
 These guard against theorems that are true for uninteresting reasons:
 
-* The main theorems are applied to concrete inputs with every hypothesis proved, so their hypotheses
-  can be met.
-* Each guarantee is shown to reject a bad world, so none is trivially true.
-* The `#guard`s pin exact results, so a `tick` that did nothing would fail the build.
+* Each main theorem is applied to the real starting universe with every hypothesis proved.
+* Each promise is shown to reject a bad universe.
+* The `#guard`s pin exact results and check each card flips when the laws say it should.
 -/
 
 namespace Paradox
 
-open Engine
-
-/-! ## Test worlds -/
-
-/-- A body for tests. -/
-def testBody (id : Nat) (p v : Vec3) (m : ℚ := 1) : Body :=
-  { id, shape := .sphere (1 / 2), position := p, velocity := v, mass := m, charge := 0 }
-
-/-- Exact test laws: no rounding, no collisions. -/
-def testLaws : PhysicsLaws :=
-  { defaultLaws with
-    timeStep := 1 / 10
-    maxSpeed := 20
-    maxAcceleration := 30
-    grid := 0
-    collisions := .none
-    restitution := 1 / 2 }
-
-/-- A test world with these bodies. -/
-def testWorld (bodies : List Body) (laws : PhysicsLaws := testLaws) : World :=
-  { bodies, bounds := defaultBounds, laws, regions := [], portals := [], rules := [], tick := 0,
-    nextId := 100 }
-
-/-- One moving sphere. -/
-def oneBody : World := testWorld [testBody 0 ⟨0, 5, 0⟩ ⟨1, 0, 0⟩]
-
 /-! ## The hypotheses can be met -/
 
-/-- An event sequence that strengthens, reverses and removes gravity and changes the force law. -/
-def stressEvents : List EnvironmentEvent :=
-  [.changeGravity ⟨0, -100, 0⟩, .reverseGravity, .changeMaxSpeed (1 / 2), .disableGravity,
-   .setPairForce (.div (.const 1) .dist), .setReaction 0, .setTopology .torus, .idle]
+theorem startWorld_wellFormed : WellFormed startWorld := by
+  refine ⟨?_, ?_⟩
+  · norm_num [LawsOk, startWorld, startLaws]
+  · simp only [startWorld, List.mem_cons, List.not_mem_nil, or_false]
+    rintro b (rfl | rfl | rfl | rfl | rfl | rfl) <;>
+      norm_num [BodyOk, Bounds.Valid, Bounds.inset]
 
-/-- `guaranteed_run` on a concrete start and event list, with every hypothesis proved. -/
-example : Guaranteed (run (generateWorld 42) stressEvents) :=
-  guaranteed_run _ _ (generateWorld_guaranteed 42)
-    ⟨trivial, trivial, (by show (0 : ℚ) < 1 / 2; norm_num), trivial, trivial, trivial, trivial,
-     trivial, trivial⟩
+/-- The speed limit theorem applies to the starting universe, with the limiter on. -/
+example : WithinSpeedLimit (tick { startWorld with laws.limiter := true }) :=
+  speedLimit_holds startWorld_wellFormed.1 (Or.inl rfl)
 
-/-- `protectedRun_guaranteed` on events that include ones protected mode must refuse. -/
-example : Guaranteed (protectedRun (generateWorld 7)
-    [.changeMaxSpeed (-1), .changeRestitution 5, .addRule (.body .all (.scaleVelocity 1000))]) :=
-  protectedRun_guaranteed _ _ (generateWorld_guaranteed 7)
+/-- The inside theorem applies under wild laws: gravity 1000, bounciness 5, multiplier 1000. -/
+example : StaysInside (run 50 { startWorld with
+    laws := { startLaws with gravity := 1000, restitution := 5, multiplier := 1000 } }) := by
+  refine stays_inside_forever_of_tick 49 ?_
+  exact ⟨by norm_num [LawsOk, startLaws], startWorld_wellFormed.2⟩
 
-/-- `random_chaos_safe` for a concrete seed. -/
-example : Guaranteed (run (generateWorld 1) (safeEvents 2 1000)) :=
-  random_chaos_safe 2 1000 _ (generateWorld_guaranteed 1)
+/-- The energy theorem applies with every force off. -/
+example : totalEnergy (run 100 { startWorld with
+    laws := { startLaws with gravity := 0, restitution := 1 } }).bodies ≤ totalEnergy startWorld.bodies :=
+  energy_forever 100 ⟨by norm_num [LawsOk, startLaws], startWorld_wellFormed.2⟩
+    (by norm_num [EnergySafe, startLaws])
 
-/-- `next_inv` with a rule order chosen. -/
-example (p : Property) :
-    Inv p (evalRules (generateWorld 3) [] (tick (applyEvent (generateWorld 3) .idle))) :=
-  next_inv p .idle _ trivial (generateWorld_guaranteed 3 p) ⟨[], by simp [applyEvent, generateWorld], rfl⟩
+/-! ## The promises reject bad universes -/
 
-/-- `negative_maxSpeed_violates`: the velocity theorem cannot be widened to every event. -/
-theorem negative_speed_breaks_oneBody :
-    ¬ BoundedVelocity (tick (applyEvent oneBody (.changeMaxSpeed (-1)))) := by
-  refine negative_maxSpeed_violates (by norm_num) ?_
-  simp [tick, applyEvent, withLaws, oneBody, testWorld, collisionStage, testLaws, applyForces,
-    pairAll, pairOne]
+/-- A sphere for tests. -/
+def testBody (p v : Vec3) : Body := ⟨0, p, v, 1, 1 / 2⟩
 
-/-! ## The guarantees reject bad worlds -/
+/-- A universe with these objects. -/
+def testWorld (bodies : List Body) (l : Laws := startLaws) : World :=
+  { startWorld with bodies, laws := l }
 
-example : ¬ PositiveMass (testWorld [testBody 0 ⟨0, 0, 0⟩ Vec3.zero 0]) := by
-  norm_num [PositiveMass, testWorld, testBody]
+example : ¬ StaysInside (testWorld [testBody ⟨10, 0, 0⟩ Vec3.zero]) := by
+  norm_num [StaysInside, testWorld, testBody, startWorld, Bounds.Contains, Bounds.inset]
 
-example : ¬ BoundedPosition (testWorld [testBody 0 ⟨10, 0, 0⟩ Vec3.zero]) := by
-  norm_num [BoundedPosition, Bounds.Contains, Bounds.inset, testWorld, testBody, defaultBounds,
-    Body.extent, Shape.extent]
+example : ¬ WithinSpeedLimit (testWorld [testBody ⟨0, 0, 0⟩ ⟨31, 0, 0⟩]) := by
+  norm_num [WithinSpeedLimit, Vec3.WithinAbs, testWorld, testBody, startLaws]
 
-example : ¬ BoundedVelocity (testWorld [testBody 0 ⟨0, 0, 0⟩ ⟨21, 0, 0⟩]) := by
-  norm_num [BoundedVelocity, Vec3.WithinAbs, testWorld, testBody, testLaws, defaultLaws]
+example : ¬ SpeedSafe { startLaws with multiplier := 100 } := by
+  norm_num [SpeedSafe, startLaws]
 
-example : ¬ UniqueIds (testWorld [testBody 0 ⟨0, 0, 0⟩ Vec3.zero, testBody 0 ⟨1, 0, 0⟩ Vec3.zero]) := by
-  simp [UniqueIds, testWorld, testBody]
+example : ¬ MomentumSafe { startLaws with pull := 1, thirdLaw := false } := by
+  simp [MomentumSafe]
 
-example : ¬ SafeEnvironment (testWorld [] { testLaws with restitution := 5 }) := by
-  norm_num [SafeEnvironment, testWorld]
+example : ¬ EnergySafe startLaws := by
+  norm_num [EnergySafe, startLaws]
 
 /-! ## Exact physics -/
 
-/-- The first body's position and velocity after a step. -/
-def firstMotion (w : World) : Option (Vec3 × Vec3) :=
+/-- The first body's position and velocity. -/
+def first (w : World) : Option (Vec3 × Vec3) :=
   w.bodies.head?.map fun b => (b.position, b.velocity)
 
--- Falling under gravity: v = (1, -1, 0), p = (1/10, 49/10, 0).
-#guard firstMotion (step oneBody .idle) == some (⟨1 / 10, 49 / 10, 0⟩, ⟨1, -1, 0⟩)
--- Reversing gravity acts in the same step.
-#guard firstMotion (step oneBody .reverseGravity) == some (⟨1 / 10, 51 / 10, 0⟩, ⟨1, 1, 0⟩)
--- Lowering the speed limit acts in the same step.
-#guard (firstMotion (step oneBody (.changeMaxSpeed (1 / 2)))).map (·.2) == some ⟨1 / 2, -1 / 2, 0⟩
--- Time passes.
-#guard (step oneBody .idle).tick == 1
+/-- Exact laws for tests: no rounding, time step 1/10, bounciness 1/2. -/
+def exactLaws : Laws :=
+  { startLaws with
+    timeStep := 1 / 10
+    restitution := 1 / 2
+    grid := 0 }
 
-/-- A body about to hit the right wall of a box. -/
-def nearWall (laws : PhysicsLaws) : World :=
-  testWorld [testBody 0 ⟨19 / 2, 0, 0⟩ ⟨10, 0, 0⟩] { laws with gravity := Vec3.zero }
-
--- In a box, a body stops at the wall and bounces at half speed.
-#guard firstMotion (step (nearWall testLaws) .idle) == some (⟨19 / 2, 0, 0⟩, ⟨-5, 0, 0⟩)
--- In a torus, it comes back on the far side at the same speed. The room is 19 wide.
-#guard firstMotion (step (nearWall { testLaws with topology := .torus }) .idle) ==
-  some (⟨-17 / 2, 0, 0⟩, ⟨10, 0, 0⟩)
-
-/-- A world with a portal covering the point a body is about to reach. -/
-def portalWorld (effect : PortalEffect) (exit : Option Vec3) : World :=
-  { testWorld [testBody 0 ⟨0, 0, 0⟩ ⟨10, 0, 0⟩] { testLaws with gravity := Vec3.zero } with
-    portals := [⟨⟨0, 2, -1, 1, -1, 1⟩, exit, effect⟩] }
-
--- A portal moves the body and multiplies its velocity.
-#guard firstMotion (step (portalWorld (.scale 2) (some ⟨5, 5, 5⟩)) .idle) ==
-  some (⟨5, 5, 5⟩, ⟨20, 0, 0⟩)
--- A portal with no exit leaves the body where it landed. Its effect still applies.
-#guard firstMotion (step (portalWorld .reverse none) .idle) == some (⟨1, 0, 0⟩, ⟨-10, 0, 0⟩)
--- A portal that multiplies by more than 1 can break the speed limit: its counterexample is real.
-#guard !decide (BoundedVelocity (step (portalWorld (.scale 3) (some ⟨5, 5, 5⟩)) .idle))
-
--- Time runs at half speed inside a region.
-#guard firstMotion (step { testWorld [testBody 0 ⟨0, 0, 0⟩ ⟨2, 0, 0⟩]
-    { testLaws with gravity := Vec3.zero } with
-    regions := [⟨"slow", "blue", defaultBounds, 1 / 2⟩] } .idle) == some (⟨1 / 10, 0, 0⟩, ⟨2, 0, 0⟩)
-
--- Mass decays at the mass rate.
-#guard ((step (testWorld [testBody 0 ⟨0, 0, 0⟩ Vec3.zero 2]
-    { testLaws with massRate := 1 / 2 }) .idle).bodies.head?.map (·.mass)) == some 1
-
--- The grid rounds toward zero, in both directions.
+-- Falling under gravity.
+#guard first (tick (testWorld [testBody ⟨0, 5, 0⟩ ⟨1, 0, 0⟩] exactLaws)) ==
+  some (⟨1 / 10, 49 / 10, 0⟩, ⟨1, -1, 0⟩)
+-- A wall stops an object and it bounces at half speed.
+#guard first (tick (testWorld [testBody ⟨19 / 2, 0, 0⟩ ⟨10, 0, 0⟩] { exactLaws with gravity := 0 })) ==
+  some (⟨19 / 2, 0, 0⟩, ⟨-5, 0, 0⟩)
+-- The multiplier acts after the move.
+#guard first (tick (testWorld [testBody ⟨0, 0, 0⟩ ⟨1, 0, 0⟩]
+    { exactLaws with gravity := 0, multiplier := 100 })) == some (⟨1 / 10, 0, 0⟩, ⟨100, 0, 0⟩)
+-- The limiter acts last.
+#guard first (tick (testWorld [testBody ⟨0, 0, 0⟩ ⟨1, 0, 0⟩]
+    { exactLaws with gravity := 0, multiplier := 100, limiter := true })) ==
+  some (⟨1 / 10, 0, 0⟩, ⟨30, 0, 0⟩)
+-- Rounding goes toward zero both ways, and 0 means no rounding.
 #guard snap 8 (3 / 16) == 1 / 8
 #guard snap 8 (-3 / 16) == -1 / 8
 #guard snap 0 (3 / 16) == 3 / 16
 
-/-- Two touching bodies moving toward each other. -/
-def headOn (mode : CollisionMode) (e : ℚ := 1) : World :=
-  testWorld [testBody 0 ⟨0, 0, 0⟩ ⟨1, 0, 0⟩, testBody 1 ⟨1 / 2, 0, 0⟩ ⟨-1, 0, 0⟩]
-    { testLaws with gravity := Vec3.zero, collisions := mode, restitution := e }
+/-- Two objects at rest, three apart, with this pull and third law. -/
+def pair (pull : ℚ) (third : Bool) : World :=
+  testWorld [⟨0, ⟨0, 0, 0⟩, Vec3.zero, 2, 1 / 2⟩, ⟨1, ⟨3, 0, 0⟩, Vec3.zero, 3, 1 / 2⟩]
+    { exactLaws with gravity := 0, pull, thirdLaw := third }
 
--- Equal masses at restitution 1 swap velocities.
-#guard (step (headOn .bounce) .idle).bodies.map (·.velocity) == [⟨-1, 0, 0⟩, ⟨1, 0, 0⟩]
--- Merging keeps total mass and leaves one body.
-#guard ((step (headOn .merge) .idle).bodies.map (·.mass)) == [2]
--- Spawning adds one body, with a new id.
-#guard (step (headOn .spawn) .idle).bodies.map (·.id) == [0, 1, 100]
-#guard (step (headOn .spawn) .idle).nextId == 101
--- Exchanging velocity works at any restitution.
-#guard (step (headOn .exchangeVelocity 0) .idle).bodies.map (·.velocity) == [⟨-1, 0, 0⟩, ⟨1, 0, 0⟩]
+-- The theorem's prediction shows up in exact arithmetic, and so does its failure.
+#guard decide (MomentumKept (pair 5 true))
+#guard !decide (MomentumKept (pair 5 false))
+#guard decide (MomentumKept (pair 0 false))
 
-/-! ## Invented force laws -/
+/-! ## Cards flip when the laws say so -/
 
-/-- A deliberately strange law: force depends on mass, charge, speed and distance. -/
-def strangeLaw : LawExpr :=
-  .div (.add (.mul .massA .massB) (.mul .chargeA .speedSquared)) (.add (.const 1) .dist)
+/-- The start universe under different laws. -/
+def under (f : Laws → Laws) : World :=
+  { startWorld with laws := f startLaws }
 
-/-- Three bodies far apart, under the strange law, with this reaction factor. -/
-def strangeWorld (r : ℚ) : World :=
-  testWorld [testBody 0 ⟨0, 0, 0⟩ ⟨1, 2, 3⟩ 2, testBody 1 ⟨4, 0, 0⟩ ⟨-1, 0, 1⟩ 3,
-             testBody 2 ⟨0, 5, 1⟩ ⟨0, 0, 0⟩ 5]
-    { testLaws with gravity := Vec3.zero, pairForce := strangeLaw, reaction := r }
+/-- The status of a promise under different laws. -/
+def statusUnder (p : Promise) (f : Laws → Laws) : Status :=
+  (verdict p (under f)).1
 
-/-- Total momentum along x after the force stage only. -/
-def momentumAfterForces (w : World) : ℚ :=
-  totalMomentum ⟨1, 0, 0⟩ (pairAll (forcePair w.laws) w.bodies)
+-- Objects stay inside under anything.
+#guard statusUnder .staysInside id == .proven
+#guard statusUnder .staysInside (fun l => { l with gravity := 1000, restitution := 5, multiplier := 1000 }) == .proven
+-- The headline: ×100 breaks the speed limit, and ×100 with the limiter is proved safe.
+#guard statusUnder .speedLimit id == .proven
+#guard statusUnder .speedLimit (fun l => { l with multiplier := 100 }) == .counterexample
+#guard statusUnder .speedLimit (fun l => { l with multiplier := 100, limiter := true }) == .proven
+-- Bouncy walls break it too. A slow world cannot show this, so the test universe does.
+#guard statusUnder .speedLimit (fun l => { l with restitution := 2 }) == .counterexample
+-- Neither law is safe here, but together they cancel out, so the answer is honestly Unproven.
+#guard statusUnder .speedLimit (fun l => { l with restitution := 2, multiplier := 1 / 10 }) == .unproven
+-- Momentum depends on the third law, not on the strength of the pull.
+#guard statusUnder .momentum (fun l => { l with pull := 500 }) == .proven
+#guard statusUnder .momentum (fun l => { l with pull := 5, thirdLaw := false }) == .counterexample
+#guard statusUnder .momentum (fun l => { l with thirdLaw := false }) == .proven
+-- Energy cannot be promised alongside gravity.
+#guard statusUnder .energy id == .counterexample
+#guard statusUnder .energy (fun l => { l with gravity := 0 }) == .proven
+#guard statusUnder .energy (fun l => { l with gravity := 0, pull := 1 }) == .counterexample
+#guard statusUnder .energy (fun l => { l with gravity := 0, multiplier := 3 }) == .counterexample
 
--- With the third law on, the theorem's prediction shows up in exact arithmetic.
-#guard momentumAfterForces (strangeWorld 1) == totalMomentum ⟨1, 0, 0⟩ (strangeWorld 1).bodies
--- With it off, momentum changes.
-#guard momentumAfterForces (strangeWorld 0) != totalMomentum ⟨1, 0, 0⟩ (strangeWorld 0).bodies
-
-/-! ## The rule checker -/
-
-/-- A rule that multiplies velocity. -/
-def scaleRule (k : ℚ) : Rule := .body .all (.scaleVelocity k)
-
-#guard !(scaleRule 1000).keeps .boundedVelocity
-#guard (scaleRule (1 / 2)).keeps .boundedVelocity
-#guard (Rule.seq (scaleRule 1000) (.body .all .clampVelocity)).keeps .boundedVelocity
-#guard (scaleRule 1000).keeps .positiveMass
--- The speed limiter only establishes the bound if it reaches every body.
-#guard !(Rule.seq (scaleRule 1000) (.body (.speedAbove 5) .clampVelocity)).keeps .boundedVelocity
--- Objects that get heavier as they move faster keep positive mass. That is proved, not assumed.
-#guard (Rule.body .all (.setMassFormula (.add .massA (.mul (.const 1) .speedSquared)))).keeps .positiveMass
--- A formula that could reach zero or below is not cleared.
-#guard !(Rule.body .all (.setMassFormula (.sub .massA .speedSquared))).keeps .positiveMass
--- Repair works when clamping helps and refuses when it cannot.
-#guard (scaleRule 1000).repair.isSome
-#guard (Rule.body .all (.scaleMass (-1))).repair.isNone
-#guard (Rule.world (.setMaxSpeed (-1))).repair.isNone
--- `create` is safe because it checks validity when it runs.
-#guard (Rule.create (testBody 0 ⟨0, 0, 0⟩ ⟨100, 0, 0⟩)).certified
-
-/-- The body that a create rule makes when it can, and the world when it cannot. -/
-def createdCount (t : Body) : Nat :=
-  ((Rule.create t).eval oneBody oneBody).bodies.length
-
-#guard createdCount (testBody 0 ⟨0, 0, 0⟩ Vec3.zero) == 2
-#guard createdCount (testBody 0 ⟨0, 0, 0⟩ ⟨100, 0, 0⟩) == 1
-#guard createdCount (testBody 0 ⟨0, 0, 0⟩ Vec3.zero 0) == 1
-
-/-! ## Layer A: rule consistency -/
-
-/-- The contradiction the spec gives as an example. -/
-def stationaryAndMoving : List Constraint :=
-  [.body .speedSquared .eq 0, .body .speedSquared .eq 25]
-
-/-- Whether the check found a contradiction. -/
-def RuleCheck.isContradiction : RuleCheck → Bool
-  | .contradiction _ _ => true
-  | _ => false
-
-/-- Whether the check found a witness. -/
-def RuleCheck.isSatisfiable : RuleCheck → Bool
-  | .satisfiable _ => true
-  | _ => false
-
-#guard (checkConstraints oneBody stationaryAndMoving).isContradiction
--- A rule against the built-in positive mass is a contradiction.
-#guard (checkConstraints oneBody [.body .mass .lt 0]).isContradiction
--- A rule against the speed limit is a contradiction.
-#guard (checkConstraints oneBody [.body .velocityX .ge 21]).isContradiction
--- Strict limits at the same value conflict; non-strict ones do not.
-#guard (checkConstraints oneBody [.body .charge .gt 1, .body .charge .le 1]).isContradiction
-#guard (checkConstraints oneBody [.body .charge .ge 1, .body .charge .le 1]).isSatisfiable
--- An empty universe does not count, so "no objects" is a contradiction.
-#guard (checkConstraints oneBody [.population .eq 0]).isContradiction
--- A speed constraint gets a real witness.
-#guard (checkConstraints oneBody [.body .speedSquared .eq 25]).isSatisfiable
-#guard (checkConstraints oneBody [.population .eq 3, .body .mass .eq 7]).isSatisfiable
--- This is possible (speed² 2 from x = y = 1) but the check does not find it, and says so honestly.
-#guard match checkConstraints oneBody [.body .speedSquared .eq 2] with
-  | .unknown => true
-  | _ => false
-
-/-! ## Layer B: transition consistency -/
-
--- Dividing by distance has no value when two bodies are at the same point.
-#guard (LawExpr.div (.const 1) .dist).definedness == .undefinedAt 0
-#guard (LawExpr.div (.const 1) (.add (.const 1) .dist)).definedness == .defined
--- A division the check cannot clear, and the probes do not expose, stays unknown.
-#guard (LawExpr.div (.const 1) .massB).definedness == .unknown
-
-#guard !(checkTransitions (portalWorld .none none)).portalsWithoutExit.isEmpty
-#guard (checkTransitions (portalWorld .none (some ⟨0, 0, 0⟩))).portalsWithoutExit.isEmpty
-#guard (checkTransitions { oneBody with rules := [.body (.inRegion "red") .reverseVelocity] }).missingRegions == ["red"]
-#guard (checkTransitions { oneBody with
-    rules := [.body (.inRegion "red") .reverseVelocity]
-    regions := [⟨"red", "red", defaultBounds, 1⟩] }).missingRegions.isEmpty
-
--- Two rules setting gravity to different values conflict.
-#guard orderStatus oneBody (.world (.setGravity ⟨1, 0, 0⟩)) (.world (.setGravity ⟨2, 0, 0⟩)) == .conflict
--- Setting different laws never conflicts, proved for every world.
-#guard orderStatus oneBody (.world (.setGravity ⟨1, 0, 0⟩)) (.world (.setMaxSpeed 2)) == .independent
--- Two equal rules agree here, but that is not called independence.
-#guard orderStatus oneBody (.world (.setGravity ⟨1, 0, 0⟩)) (.world (.setGravity ⟨1, 0, 0⟩)) == .agreesHere
-
-/-! ## Layer C: verdicts and counterexamples -/
-
-/-- The spec's first demonstration: speed limit 10 and a rule. -/
-def speedDemo (r : Rule) : World :=
-  { testWorld [testBody 0 ⟨0, 0, 0⟩ ⟨1, 0, 0⟩] { testLaws with maxSpeed := 10, gravity := ⟨0, 2, 0⟩ }
-    with rules := [r] }
-
-/-- The verdict status for the velocity guarantee. -/
-def velocityStatus (r : Rule) : Status :=
-  (verifyProperty {} .boundedVelocity (speedDemo r)).status
-
-#guard velocityStatus (.seq (scaleRule 100) (.body .all .clampVelocity)) == .proven
-#guard velocityStatus (scaleRule 100) == .counterexample
+/-! ## Counterexamples are checked -/
 
 /-- The counterexample for the ×100 rule. -/
-def speedCounterexample : Option WorldTrace :=
-  searchCounterexample {} .allowed (.property .boundedVelocity) (speedDemo (scaleRule 100))
+def times100 : Option Trace :=
+  (verdict .speedLimit (under fun l => { l with multiplier := 100 })).2
 
-#guard speedCounterexample.isSome
-#guard speedCounterexample.any fun t => checkTrace .allowed (.property .boundedVelocity) t
--- A tampered trace fails: the claimed final state is not what the model produces.
-#guard speedCounterexample.any fun t =>
-  !checkTrace .any (.property .boundedVelocity)
-    { t with states := t.states.map fun s => { s with tick := s.tick + 1 } }
--- A trace of a claim that holds fails too, even if the replay is right.
-#guard speedCounterexample.any fun t => !checkTrace .any (.property .positiveMass) t
+#guard times100.isSome
+#guard times100.any (checkTrace .speedLimit)
+-- A tampered trace fails: the states are not what the model produces.
+#guard times100.any fun t =>
+  !checkTrace .speedLimit { t with states := t.states.map fun s => { s with tick := s.tick + 1 } }
+-- A real trace does not count against a promise it does not break.
+#guard times100.any fun t => !checkTrace .staysInside t
+-- A broken start does not count as a fair run.
+#guard !checkTrace .speedLimit ⟨testWorld [testBody ⟨0, 0, 0⟩ ⟨99, 0, 0⟩], []⟩
 
--- Failure to prove is not failure. With no events that could break it and no search budget,
--- the answer is unknown, not counterexample.
-#guard (verifyClaim { depth := 0, idleSteps := 0 } (.constraint (.population .le 1)) oneBody).status == .unknown
--- The search finds a permitted spawn that breaks the population limit.
-#guard (verifyClaim {} (.constraint (.population .le 1)) oneBody).status == .counterexample
+/-! ## The lock -/
 
--- A rule that is safe but cannot be cleared gets unknown. Events that break the rules on purpose
--- do not count against it: those are only searched when asked for.
-#guard (verifyProperty {} .boundedPosition { oneBody with
-    rules := [.body (.speedAbove 100000) (.translate ⟨1, 0, 0⟩)] }).status == .unknown
-#guard (searchCounterexample {} .any (.property .boundedPosition) { oneBody with
-    rules := [.body (.speedAbove 100000) (.translate ⟨1, 0, 0⟩)] }).isSome
-
-/-! ## Protected mode -/
-
-/-- Whether protected mode accepted, repaired or rejected the event. -/
-def decisionKind (w : World) (e : EnvironmentEvent) : String :=
-  match decideEvent w e with
-  | .accepted _ => "accepted"
-  | .repaired _ _ => "repaired"
-  | .rejected _ => "rejected"
-
-#guard decisionKind oneBody (.changeMaxSpeed (-1)) == "rejected"
-#guard decisionKind oneBody (.changeMaxSpeed 1) == "accepted"
-#guard decisionKind oneBody (.changeRestitution 5) == "repaired"
-#guard decisionKind oneBody (.addRule (scaleRule 1000)) == "repaired"
-#guard decisionKind oneBody (.addRule (.body .all (.scaleMass (-1)))) == "rejected"
-#guard decisionKind oneBody (.spawnBody (testBody 0 ⟨0, 0, 0⟩ Vec3.zero)) == "repaired" ||
-  decisionKind oneBody (.spawnBody (testBody 0 ⟨0, 0, 0⟩ Vec3.zero)) == "rejected"
--- A body with no mass cannot be repaired.
-#guard decisionKind oneBody (.spawnBody (testBody 5 ⟨0, 0, 0⟩ Vec3.zero 0)) == "rejected"
--- Any force law at all is permitted.
-#guard decisionKind oneBody (.setPairForce strangeLaw) == "accepted"
--- Unprotected mode lets the same event through and the guarantee really breaks.
-#guard !decide (BoundedVelocity (step oneBody (.changeMaxSpeed (-1))))
-
-/-- A universe that would reach a population of 3 with one more spawn. -/
-def crowded : World :=
-  testWorld [testBody 0 ⟨0, 0, 0⟩ Vec3.zero, testBody 1 ⟨5, 0, 0⟩ Vec3.zero]
-
--- Enforcing a population limit refuses the change that would break it.
-#guard (enforcedStep [.population .le 2] crowded (.spawnBody (testBody 2 ⟨1, 0, 0⟩ Vec3.zero))).bodies.length == 2
-#guard (enforcedStep [.population .le 3] crowded (.spawnBody (testBody 2 ⟨1, 0, 0⟩ Vec3.zero))).bodies.length == 3
-
-/-! ## Randomness -/
-
--- The same seed gives the same events; different seeds give different ones.
-#guard safeEvents 42 20 == safeEvents 42 20
-#guard safeEvents 42 20 != safeEvents 43 20
-#guard wildEvents 42 20 == wildEvents 42 20
--- The generated worlds have what they should.
-#guard decide (Guaranteed (generateWorld 492018))
-#guard (generateWorld 1).bodies.length ≥ 3
-
-/-! ## Conservation audit -/
-
-#guard (auditMass {} (testWorld [testBody 0 ⟨0, 0, 0⟩ Vec3.zero])).status == .proven
-#guard (auditMass {} (testWorld [testBody 0 ⟨0, 0, 0⟩ Vec3.zero] { testLaws with massRate := 1 / 2 })).status == .counterexample
-#guard (auditEnergy {} (testWorld [testBody 0 ⟨0, 0, 0⟩ ⟨1, 0, 0⟩] { testLaws with gravity := Vec3.zero })).status == .proven
--- Gravity adds energy, and the audit finds the run that shows it.
-#guard (auditEnergy {} oneBody).status == .counterexample
-#guard (auditInteractionMomentum (strangeWorld 1)).1 == .proven
-#guard (auditInteractionMomentum (strangeWorld 0)).1 == .counterexample
+#guard decideLaws { startLaws with gravity := 50 } == .accepted { startLaws with gravity := 50 }
+#guard decideLaws { startLaws with multiplier := 100 } ==
+  .repaired { startLaws with multiplier := 100, limiter := true }
+#guard decideLaws { startLaws with restitution := 2 } ==
+  .repaired { startLaws with restitution := 2, limiter := true }
+#guard decideLaws { startLaws with maxSpeed := -1 } == .refused
+#guard decideLaws { startLaws with restitution := -1 } == .refused
 
 end Paradox

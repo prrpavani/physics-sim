@@ -1,563 +1,187 @@
-import Paradox.Api.Catalog
+import Paradox.Api.Json
 
 /-!
-# The API, as a pure function
+# The API, as pure functions
 
-Every route takes JSON and returns JSON. The HTTP server only moves bytes, so everything here can be
-tested without a network. No route makes a decision about the universe on its own: each one calls
-the formal functions and reports what they returned.
+Each route calls the formal functions and reports what they returned. No route decides anything about
+a universe on its own.
 -/
-
-namespace Paradox
-
-/-! ## Limits on formulas and rules -/
-
-/-- The number of pieces in a formula. -/
-def LawExpr.nodes : LawExpr → Nat
-  | .add a b | .sub a b | .mul a b | .div a b => a.nodes + b.nodes + 1
-  | .neg a | .pow a _ => a.nodes + 1
-  | _ => 1
-
-/-- How deeply powers are stacked in a formula. -/
-def LawExpr.powerDepth : LawExpr → Nat
-  | .add a b | .sub a b | .mul a b | .div a b => max a.powerDepth b.powerDepth
-  | .neg a => a.powerDepth
-  | .pow a _ => a.powerDepth + 1
-  | _ => 0
-
-/-- The formulas in a rule. -/
-def Rule.formulas : Rule → List LawExpr
-  | .body _ (.setMassFormula f) => [f]
-  | .world (.setPairForce f) => [f]
-  | .seq a b => a.formulas ++ b.formulas
-  | .when _ r => r.formulas
-  | _ => []
-
-/-- The number of pieces in a rule. -/
-def Rule.nodes : Rule → Nat
-  | .seq a b => a.nodes + b.nodes + 1
-  | .when _ r => r.nodes + 1
-  | _ => 1
-
-end Paradox
 
 namespace Paradox.Api
 
 open Lean (Json)
 
-/-- The contract version. Changing the wire format means changing this. -/
-def contractVersion : String := "1.0.0"
-
-/-- The most bodies a request may contain. -/
-def maxBodies : Nat := 256
 /-- The most steps one request may run. -/
-def maxSteps : Nat := 5000
-/-- The largest formula or rule a request may contain. -/
-def maxNodes : Nat := 256
-/-- The deepest powers may be stacked in one formula. -/
-def maxPowerDepth : Nat := 2
+def maxSteps : Nat := 2000
 
-/-- The formula is small enough to evaluate safely. -/
-def formulaOk (e : LawExpr) : Bool :=
-  e.nodes ≤ maxNodes && e.powerDepth ≤ maxPowerDepth
+/-- The most objects a request may contain. -/
+def maxBodies : Nat := 64
 
-/-- The rule is small enough to run safely. -/
-def ruleOk (r : Rule) : Bool :=
-  r.nodes ≤ maxNodes && r.formulas.all formulaOk
+/-- Everything the app shows about a promise that is fixed, not computed. -/
+structure PromiseInfo where
+  promise : Promise
+  key : String
+  title : String
+  /-- What the promise says. -/
+  meaning : String
+  /-- The result worth noticing. -/
+  insight : String
+  /-- The theorems to show, in order. -/
+  theorems : List Lean.Name
+  /-- What is proved, and what it does not say. -/
+  limits : String
 
-/-- A limit on bodies squared times steps, which is about how much work a run does. -/
-def maxRunWork : Nat := 5000000
+/-- The four promises, as the app presents them. -/
+def promiseInfos : List PromiseInfo :=
+  [ ⟨.staysInside, "staysInside", "Objects stay inside",
+      "Every object is fully inside the world.",
+      "No setting of these laws can break this one.",
+      [``stays_inside, ``stays_inside_forever],
+      "Each step ends by keeping objects inside, so this shows that always works. See below for proof that it only acts when it must."⟩,
+    ⟨.speedLimit, "speedLimit", "Speed limit",
+      "Every velocity component stays within the limit.",
+      "Multiplying velocity by 100 breaks this. Adding the limiter makes the same law provably safe.",
+      [``speedLimit_holds, ``speedLimit_forever, ``locked_run_safe],
+      "It holds after each step from the current laws on. It does not cover laws that fail the conditions, which may or may not break it."⟩,
+    ⟨.momentum, "momentum", "Momentum between objects",
+      "The pull between objects does not change their total momentum.",
+      "True for any pull strength and any masses, and false the moment the third law is off.",
+      [``momentum_holds, ``momentum_forever],
+      "It covers objects acting on each other. Gravity and walls do change total momentum."⟩,
+    ⟨.energy, "energy", "Energy never rises",
+      "Total kinetic energy can only stay level or fall.",
+      "You cannot have this promise and gravity together: falling objects gain energy.",
+      [``energy_never_rises, ``energy_forever, ``wall_never_speeds_up],
+      "This is about kinetic energy, which is all the model has. It is not conservation: walls and rounding can remove energy."⟩ ]
 
-/-- A limit on bodies squared times states searched. -/
-def maxSearchWork : Nat := 400000
+/-- Which conditions a promise depends on, each with whether it holds now. -/
+def conditionsOf (p : Promise) (l : Laws) : List (String × Bool) :=
+  let bounce := decide (l.restitution ≤ 1)
+  let multiply := decide (|l.multiplier| ≤ 1)
+  match p with
+  | .staysInside => []
+  | .speedLimit =>
+    [("The limiter is on", l.limiter), ("Or: bounciness is at most 1", bounce),
+     ("And the multiplier's size is at most 1", multiply)]
+  | .momentum => [("Newton's third law is on", l.thirdLaw), ("Or: there is no pull", decide (l.pull = 0))]
+  | .energy =>
+    [("No gravity", decide (l.gravity = 0)), ("No pull", decide (l.pull = 0)),
+     ("Bounciness is at most 1", bounce), ("The multiplier's size is at most 1", multiply)]
 
-/-- About how many states one unit of search budget visits per level: one per candidate event. -/
-def statesPerBudget : Nat := 12
+def encStatus : Status → Json
+  | .proven => "proven"
+  | .counterexample => "counterexample"
+  | .unproven => "unproven"
 
-/-- Lower search limits so a large world cannot take too long. A lower limit can only turn a
-counterexample into `unknown`, which stays honest. -/
-def fitLimits (w : World) (l : SearchLimits) : SearchLimits :=
-  let squared := max 1 (w.bodies.length * w.bodies.length)
-  let room := maxSearchWork / squared
-  { l with
-    budget := min l.budget (room / (statesPerBudget * max 1 l.depth))
-    idleSteps := min l.idleSteps room }
+def encTrace (t : Trace) : Json :=
+  Json.mkObj [("start", encWorld t.start), ("states", Json.arr (t.states.map encWorld).toArray)]
 
-/-- Reject a world too large to process. -/
+/-- One card. -/
+def encCard (info : PromiseInfo) (w : World) : Json :=
+  let v := verdict info.promise w
+  let fromProbe := match v.2 with
+    | some t => decide (t.start ≠ w)
+    | none => false
+  let statusText := match v.1 with
+    | .proven => "Lean proved this holds at every future step, under these laws."
+    | .counterexample =>
+      if fromProbe then "Lean checked a run from a small test universe under these laws. It breaks this promise."
+      else "Lean checked a run of this universe that breaks this promise."
+    | .unproven => "Not proved, and the search found no run that breaks it. This does not mean it is true or false."
+  Json.mkObj [("key", info.key), ("title", info.title), ("meaning", info.meaning),
+    ("insight", info.insight), ("limits", info.limits), ("status", encStatus v.1),
+    ("statusText", statusText),
+    ("conditions", Json.arr ((conditionsOf info.promise w.laws).map fun c =>
+      Json.mkObj [("text", c.1), ("met", Json.bool c.2)]).toArray),
+    ("theorems", Json.arr (info.theorems.map fun n => Json.str n.toString).toArray),
+    ("trace", match v.2 with
+      | some t => encTrace t
+      | none => Json.null),
+    ("fromProbe", Json.bool fromProbe)]
+
+/-- Which promises this exact state breaks. -/
+def encBroken (w : World) : Json :=
+  Json.mkObj [("staysInside", Json.bool (!decide (StaysInside w))),
+    ("speedLimit", Json.bool (!decide (WithinSpeedLimit w)))]
+
 def checkWorld (w : World) : Dec Unit := do
-  if w.bodies.length > maxBodies then throw s!"at most {maxBodies} bodies are supported"
-  unless formulaOk w.laws.pairForce && formulaOk w.laws.drag && formulaOk w.laws.central do
-    throw "a formula is too large"
-  unless w.rules.all ruleOk do throw "a rule is too large"
+  if w.bodies.length > maxBodies then throw s!"at most {maxBodies} objects are supported"
+  if !decide (WellFormed w) then throw "this universe is not valid: check its laws and objects"
 
-/-- Reject an event too large to process. -/
-def checkEvent : EnvironmentEvent → Dec Unit
-  | .setPairForce f | .setDrag f | .setCentral f =>
-    unless formulaOk f do throw "the formula is too large"
-  | .addRule r => unless ruleOk r do throw "the rule is too large"
-  | _ => pure ()
+def routeCreate : Json :=
+  Json.mkObj [("world", encWorld startWorld)]
 
-/-- Read and check the `world` field. -/
-def worldField (j : Json) : Dec World := do
-  let w ← decWorld (← field j "world")
-  checkWorld w
-  return w
+def encDecision : Decision → String
+  | .accepted _ => "accepted"
+  | .repaired _ => "repaired"
+  | .refused => "refused"
 
-/-- Read and check an event. -/
-def eventOf (j : Json) : Dec EnvironmentEvent := do
-  let e ← decEvent j
-  checkEvent e
-  return e
-
-/-- The search limits of a request, lowered to suit this world. -/
-def limitsOf (j : Json) (w : World) : Dec SearchLimits :=
-  match optField j "limits" with
-  | some l => fitLimits w <$> decLimits l
-  | none => pure (fitLimits w {})
-
-/-- Which built-in guarantees are false in this world. -/
-def violations (w : World) : List Property :=
-  Property.all.filter fun p => !decide (p.holds w)
-
-/-- Which of the user's constraints are false in this world. -/
-def brokenConstraints (cs : List Constraint) (w : World) : List Constraint :=
-  cs.filter fun c => !decide (c.holds w)
-
-/-! ## Universe creation -/
-
-def routeCreate (j : Json) : Dec Json := do
-  let seed ← match optField j "seed" with
-    | some s => decNat s
-    | none => pure 1
-  let name ← match optField j "preset" with
-    | some p => decStr p
-    | none => pure "normal"
-  match presets.find? (·.name == name) with
-  | none => throw s!"unknown preset '{name}'"
-  | some p =>
-    let w := presetWorld p seed
-    return Json.mkObj [("world", encWorld w), ("preset", p.name), ("seed", (seed : Nat)),
-      ("guaranteed", Json.bool (decide (Guaranteed w)))]
-
-/-! ## Stepping -/
-
-/-- Whether a request is for protected mode. -/
-def isProtected (j : Json) : Dec Bool :=
-  match optField j "mode" with
-  | some (.str "protected") => pure true
-  | some (.str "unprotected") => pure false
-  | none => pure false
-  | _ => throw "mode must be 'protected' or 'unprotected'"
-
-/-- The result of one step. -/
-structure StepResult where
-  world : World
-  decision : Option Decision
-  /-- A constraint would have been broken, so the world did not change. -/
-  frozen : Bool
-
-/-- One step in the requested mode. -/
-def doStep (isProt : Bool) (cs : List Constraint) (w : World) (e : EnvironmentEvent) : StepResult :=
-  if isProt then
-    let r := protectedStep w e
-    if cs.all (fun c => decide (c.holds r.1)) then ⟨r.1, some r.2, false⟩
-    else ⟨w, some r.2, true⟩
-  else ⟨step w e, none, false⟩
-
-def routeStep (j : Json) : Dec Json := do
-  let w ← worldField j
-  let e ← eventOf (← field j "event")
-  let isProt ← isProtected j
-  let cs ← listFieldD decConstraint j "constraints"
-  let r := doStep isProt cs w e
-  return Json.mkObj [("world", encWorld r.world),
-    ("mode", if isProt then "protected" else "unprotected"),
-    ("decision", match r.decision with
-      | some d => encDecision d
-      | none => Json.null),
-    ("frozen", Json.bool r.frozen),
-    ("violations", encList encProperty (violations r.world)),
-    ("brokenConstraints", encList encConstraint (brokenConstraints cs r.world))]
-
-/-- What is known about a guarantee in this exact state. `proven` means the theorem covers every
-permitted future from here. `violated` means this state breaks it. `unknown` means it holds now but
-the theorem's conditions do not, so nothing is promised about the future. -/
-def guaranteeStatus (p : Property) (w : World) : String :=
-  if Inv p w then "proven" else if p.holds w then "unknown" else "violated"
-
-/-- The status of every guarantee. -/
-def encGuarantees (w : World) : Json :=
-  Json.mkObj (Property.all.map fun p =>
-    (match p with
-      | .positiveMass => "positiveMass"
-      | .boundedPosition => "boundedPosition"
-      | .boundedVelocity => "boundedVelocity"
-      | .safeEnvironment => "safeEnvironment"
-      | .uniqueIds => "uniqueIds", Json.str (guaranteeStatus p w)))
-
-/-- One frame sent to the renderer. -/
-def encFrame (w : World) (e : EnvironmentEvent) (d : Option Decision) : Json :=
-  Json.mkObj [("tick", (w.tick : Nat)), ("bodies", encList encBody w.bodies),
-    ("event", encEvent e),
-    ("decision", match d with
-      | some x => encDecision x
-      | none => Json.null),
-    ("guarantees", encGuarantees w)]
-
-/-- The events a chaos request adds. -/
-def chaosOf (j : Json) (total : Nat) : Dec (List EnvironmentEvent × Option Nat) :=
-  match optField j "chaos" with
-  | none => pure ([], none)
-  | some c => do
-    let seed ← decNat (← field c "seed")
-    let rate ← decNat (← field c "rate")
-    let kind ← match optField c "kind" with
-      | some k => decStr k
-      | none => pure "safe"
-    let pick ← match kind with
-      | "safe" => pure safeEventOf
-      | "wild" => pure wildEventOf
-      | _ => throw "chaos kind must be 'safe' or 'wild'"
-    pure (chaosEvents pick (min rate 1000) seed total, some (chaosSeedAfter seed total))
-
+/-- Run some steps. New laws, if any, apply first, through the lock if it is on. -/
 def routeRun (j : Json) : Dec Json := do
-  let w ← worldField j
-  let events ← listFieldD eventOf j "events"
-  let isProt ← isProtected j
-  let cs ← listFieldD decConstraint j "constraints"
-  let steps ← match optField j "steps" with
-    | some s => decNat s
-    | none => pure events.length
+  let w0 ← decWorld (← field j "world")
+  if w0.bodies.length > maxBodies then throw s!"at most {maxBodies} objects are supported"
+  let steps ← natField j "steps"
   if steps > maxSteps then throw s!"at most {maxSteps} steps per request"
-  if events.length > maxSteps then throw s!"at most {maxSteps} events per request"
-  let total := max steps events.length
-  if w.bodies.length * w.bodies.length * total > maxRunWork then
-    throw "too many bodies for this many steps"
-  let every ← match optField j "frameEvery" with
-    | some s => decNat s
-    | none => pure 1
-  let chaos ← chaosOf j total
-  let eventAt (i : Nat) : EnvironmentEvent :=
-    match events[i]? with
-    | some e => e
-    | none => chaos.1.getD i .idle
-  let mut current := w
+  let locked ← boolField j "locked"
+  let newLaws ← match j.getObjVal? "laws" with
+    | .ok v => if v.isNull then pure none else some <$> decLaws v
+    | .error _ => pure none
+  let (w1, decision) : World × Option String :=
+    match newLaws with
+    | none => (w0, none)
+    | some l =>
+      if locked then (lockedSetLaws w0 l, some (encDecision (decideLaws l)))
+      else ({ w0 with laws := l }, some "accepted")
+  let mut current := w1
   let mut frames : Array Json := #[]
-  for i in [0:total] do
-    let e := eventAt i
-    let r := doStep isProt cs current e
-    current := r.world
-    if every != 0 && (i + 1) % every == 0 then
-      frames := frames.push (encFrame current e r.decision)
+  for _ in [0:steps] do
+    current := tick current
+    frames := frames.push (Json.mkObj [("tick", (current.tick : Nat)),
+      ("bodies", Json.arr (current.bodies.map encBody).toArray), ("broken", encBroken current)])
   return Json.mkObj [("frames", Json.arr frames), ("world", encWorld current),
-    ("guarantees", encGuarantees current),
-    ("nextChaosSeed", match chaos.2 with
-      | some s => (s : Nat)
+    ("laws", encLaws w1.laws),
+    ("decision", match decision with
+      | some d => Json.str d
       | none => Json.null)]
 
-/-! ## Formula checks -/
+def routeVerdicts (j : Json) : Dec Json := do
+  let w ← decWorld (← field j "world")
+  checkWorld w
+  return Json.mkObj [("cards", Json.arr (promiseInfos.map (encCard · w)).toArray)]
 
-/-- A formula's value at distance `r`, with the other inputs from the request. -/
-def formulaAt (i : LawInputs) (e : LawExpr) (r : ℚ) : Option ℚ :=
-  e.evalChecked { i with distSquared := r * r }
+/-- The block of source text that declares this theorem. Blocks are separated by blank lines. -/
+def proofBlock (source : String) (name : String) : Option String :=
+  let short := (name.splitOn ".").getLast?.getD name
+  (source.splitOn "\n\n").find? fun block =>
+    (block.splitOn s!"theorem {short} ").length > 1
 
-def routeCheckFormula (j : Json) : Dec Json := do
-  let e ← decExpr (← field j "formula")
-  unless formulaOk e do throw "the formula is too large"
-  let i : LawInputs :=
-    { massA := ← ratFieldD j "massA" 1
-      massB := ← ratFieldD j "massB" 1
-      chargeA := ← ratFieldD j "chargeA" 1
-      chargeB := ← ratFieldD j "chargeB" 1
-      distSquared := 0
-      speedSquared := ← ratFieldD j "speedSquared" 0 }
-  let rMax ← ratFieldD j "rMax" 20
-  let samples := (List.range 81).map fun n =>
-    let r : ℚ := rMax * (n : ℚ) / 80
-    let value := formulaAt i e r
-    Json.mkObj [("r", approx r),
-      ("force", match value with
-        | some v => approx (v * r)
-        | none => Json.null)]
-  let status : Status × String :=
-    match e.definedness with
-    | .defined => (.proven, "This formula has a defined value for every input with positive mass.")
-    | .undefinedAt _ =>
-      (.underspecified, "This formula divides by zero for some inputs. The simulation uses 0 there.")
-    | .unknown => (.unknown, "The check could not tell whether this formula is always defined.")
-  return Json.mkObj [("status", encStatus status.1), ("explanation", status.2),
-    ("theoremId", match status.1 with
-      | .proven => Json.str (``LawExpr.divisionsSafe_sound).toString
-      | _ => Json.null),
-    ("samples", encList id samples),
-    ("momentumConserved",
-      Json.str "With reaction 1, this formula keeps total momentum, like every formula."),
-    ("momentumTheorem", (``pairForces_conserve_momentum).toString)]
-
-/-! ## Rule checks -/
-
-/-- Everything the rule checker says about one rule. -/
-def encRuleReport (w : Option World) (r : Rule) : Json :=
-  let keeps := Property.all.map fun p => (p, r.keeps p)
-  let missing := match w with
-    | some world => r.regionNames.filter fun n => !(world.regions.any (·.name == n))
-    | none => []
-  let status : Status :=
-    if !missing.isEmpty then .underspecified
-    else if r.certified then .proven
-    else .unknown
-  Json.mkObj [("rule", encRule r), ("status", encStatus status),
-    ("certified", Json.bool r.certified), ("environmentSafe", Json.bool r.envSafe),
-    ("keeps", encList (fun p => Json.mkObj [("property", encProperty p.1), ("cleared", Json.bool p.2)]) keeps),
-    ("missingRegions", encList Json.str missing),
-    ("repair", match r.repair with
-      | some fixed => encRule fixed
-      | none => Json.null),
-    ("theoremId", (``Rule.keeps_sound).toString),
-    ("explanation",
-      if !missing.isEmpty then "This rule names a region the universe does not have."
-      else if r.certified then "This rule keeps every guarantee in every safe universe."
-      else "The checker could not clear this rule for every guarantee. It may still be safe. A search \
-        can look for a run that breaks it.")]
-
-def routeValidateRules (j : Json) : Dec Json := do
-  let rules ← match optField j "rule" with
-    | some r => do pure [← decRule r]
-    | none => listFieldD decRule j "rules"
-  unless rules.all ruleOk do throw "a rule is too large"
-  let w ← match optField j "world" with
-    | some v => some <$> decWorld v
-    | none => pure none
-  return Json.mkObj [("rules", encList (encRuleReport w) rules)]
-
-/-! ## The three layers -/
-
-/-- Layer A as JSON. -/
-def encRuleLayer (base : World) (cs : List Constraint) : Json :=
-  match checkConstraints base cs with
-  | .satisfiable w =>
-    Json.mkObj [("status", encStatus .proven),
-      ("theoremId", (``checkConstraints_satisfiable).toString),
-      ("witness", encWorld w),
-      ("checked", "Whether one universe with at least one object can meet every constraint."),
-      ("assumptions", encList Json.str
-        ["Same box and speed limit as this universe.", "At least one object exists.",
-         "Every built-in guarantee holds in that universe."]),
-      ("explanation", "This example universe meets every constraint.")]
-  | .contradiction a b =>
-    Json.mkObj [("status", encStatus .inconsistent),
-      ("theoremId", (``checkConstraints_contradiction).toString),
-      ("conflict", encList encConstraint [a, b]),
-      ("checked", "Whether one universe with at least one object can meet every constraint."),
-      ("assumptions", encList Json.str
-        ["Same box and speed limit as this universe.", "At least one object exists."]),
-      ("explanation", "These two requirements cannot both be true of any object. One may be \
-        built in, such as positive mass or the speed limit.")]
-  | .unknown =>
-    Json.mkObj [("status", encStatus .unknown), ("theoremId", Json.null),
-      ("checked", "Whether one universe with at least one object can meet every constraint."),
-      ("assumptions", encList Json.str []),
-      ("explanation", "The check found no example universe and no contradiction. The constraints \
-        may or may not be possible together.")]
-
-/-- Layer B as JSON. -/
-def encTransitionLayer (w : World) : Json :=
-  let r := checkTransitions w
-  let underspecified := !r.missingRegions.isEmpty || !r.portalsWithoutExit.isEmpty ||
-    !r.undefinedFormulas.isEmpty
-  let status : Status :=
-    if underspecified then .underspecified
-    else if !r.conflicts.isEmpty then .counterexample
-    else if !r.unknownFormulas.isEmpty then .unknown
-    else .proven
-  let explanation :=
-    match status with
-    | .underspecified => "Some behaviour is missing. The simulation uses a default for it \
-        (dividing by zero gives zero; a portal with no exit leaves the object in place)."
-    | .counterexample => "Every next state is defined, but some rules give different results \
-        depending on their order. The rule list decides the order."
-    | .unknown => "No missing behaviour was found, but a formula could not be proved defined."
-    | _ => "Every formula has a defined value, every name resolves, and every portal has an exit. \
-        Each event gives exactly one next state."
-  Json.mkObj [("status", encStatus status),
-    ("theoremId", match status with
-      | .counterexample => Json.str (``orderStatus_conflict).toString
-      | .proven => Json.str (``LawExpr.divisionsSafe_sound).toString
-      | _ => Json.null),
-    ("checked", "Whether the rules say what happens next, without relying on a default."),
-    ("deterministic", Json.bool true),
-    ("deterministicTheorem", (``Engine.deterministic_of_function).toString),
-    ("missingRegions", encList Json.str r.missingRegions),
-    ("portalsWithoutExit", encList encPortal r.portalsWithoutExit),
-    ("undefinedFormulas", encList (fun p => Json.str p.1) r.undefinedFormulas),
-    ("unknownFormulas", encList Json.str r.unknownFormulas),
-    ("ruleConflicts", encList (fun p => Json.arr #[encRule p.1, encRule p.2]) r.conflicts),
-    ("explanation", explanation)]
-
-def routeCheckConsistency (j : Json) : Dec Json := do
-  let w ← worldField j
-  let cs ← listFieldD decConstraint j "constraints"
-  let limits ← limitsOf j w
-  let props ← listFieldD decProperty j "properties" Property.all
-  let claims := props.map Claim.property ++ cs.map Claim.constraint
-  return Json.mkObj [("ruleConsistency", encRuleLayer w cs),
-    ("transitionConsistency", encTransitionLayer w),
-    ("evolutionConsistency",
-      Json.mkObj [("verdicts", encList encVerdict (claims.map fun c => verifyClaim limits c w))])]
-
-/-! ## Verification -/
-
-def routeVerify (j : Json) : Dec Json := do
-  let w ← worldField j
-  let limits ← limitsOf j w
-  let claims ← match optField j "claim", optField j "property" with
-    | some c, _ => do pure [← decClaim c]
-    | _, some p => do pure [Claim.property (← decProperty p)]
-    | _, _ =>
-      let fromProps ← listFieldD decProperty j "properties" []
-      let fromClaims ← listFieldD decClaim j "claims" []
-      pure (fromProps.map Claim.property ++ fromClaims)
-  let chosen := if claims.isEmpty then Property.all.map Claim.property else claims
-  return Json.mkObj [("verdicts", encList encVerdict (chosen.map fun c => verifyClaim limits c w))]
-
-def routeCounterexample (j : Json) : Dec Json := do
-  let w ← worldField j
-  let limits ← limitsOf j w
-  let claim ← match optField j "claim", optField j "property" with
-    | some c, _ => decClaim c
-    | _, some p => Claim.property <$> decProperty p
-    | _, _ => throw "give a 'claim' or a 'property'"
-  let scope ← match optField j "scope" with
-    | some s => decScope s
-    | none => pure .any
-  match searchCounterexample limits scope claim w with
-  | some t =>
-    return Json.mkObj [("status", encStatus .counterexample), ("checked", Json.bool true),
-      ("theoremId", (``checkTrace_sound).toString), ("scope", encScope scope),
-      ("counterexample", encTrace t)]
-  | none =>
-    return Json.mkObj [("status", encStatus .unknown), ("checked", Json.bool false),
-      ("theoremId", Json.null), ("scope", encScope scope), ("counterexample", Json.null),
-      ("explanation", "No counterexample was found within the limits. This does not mean the \
-        claim is true.")]
-
-def routeCheckTrace (j : Json) : Dec Json := do
-  let t ← decTrace (← field j "trace")
-  checkWorld t.initial
-  let claim ← decClaim (← field j "claim")
-  let scope ← match optField j "scope" with
-    | some s => decScope s
-    | none => pure .any
-  return Json.mkObj [("valid", Json.bool (checkTrace scope claim t)),
-    ("replays", Json.bool (decide (t.states = Engine.statesOf step t.initial t.events))),
-    ("inScope", Json.bool (decide (InScope scope t.initial t.events))),
-    ("breaksClaim", Json.bool (decide (¬ claim.holds t.initial t.final))),
-    ("theoremId", (``checkTrace_sound).toString)]
-
-/-! ## Events -/
-
-def routeCheckEvent (j : Json) : Dec Json := do
-  let w ← worldField j
-  let e ← eventOf (← field j "event")
-  return Json.mkObj [("allowed", Json.bool (decide (Allowed w e))),
-    ("decision", encDecision (decideEvent w e))]
-
-def routeRandomEvents (j : Json) : Dec Json := do
-  let seed ← decNat (← field j "seed")
-  let count ← decNat (← field j "count")
-  if count > maxSteps then throw s!"at most {maxSteps} events per request"
-  let kind ← match optField j "kind" with
-    | some k => decStr k
-    | none => pure "safe"
-  match kind with
-  | "safe" =>
-    return Json.mkObj [("events", encList encEvent (safeEvents seed count)), ("seed", (seed : Nat)),
-      ("kind", "safe"), ("alwaysAllowed", Json.bool true),
-      ("theoremId", (``safeEvents_allowed).toString)]
-  | "wild" =>
-    return Json.mkObj [("events", encList encEvent (wildEvents seed count)), ("seed", (seed : Nat)),
-      ("kind", "wild"), ("alwaysAllowed", Json.bool false), ("theoremId", Json.null)]
-  | _ => throw "kind must be 'safe' or 'wild'"
-
-/-! ## Conservation audit -/
-
-def routeAuditLaws (j : Json) : Dec Json := do
-  let w ← worldField j
-  let limits ← limitsOf j w
-  let interaction := auditInteractionMomentum w
-  let fullStep (d : Vec3) := searchedVerdict limits (.momentumConserved d) .timeOnly "Momentum conservation" w
-  return Json.mkObj [
-    ("mass", encVerdict (auditMass limits w)),
-    ("energy", encVerdict (auditEnergy limits w)),
-    ("population", encVerdict
-      (searchedVerdict limits .populationConserved .timeOnly "Population staying constant" w)),
-    ("momentumBetweenBodies", Json.mkObj [
-      ("status", encStatus interaction.1),
-      ("theoremId", match interaction.1 with
-        | .proven => Json.str interaction.2.1
-        | _ => Json.null),
-      ("basis", interaction.2.1),
-      ("assumptions", encList Json.str interaction.2.2)]),
-    ("momentumFullStep", encList (fun d => encVerdict (fullStep d))
-      [⟨1, 0, 0⟩, ⟨0, 1, 0⟩, ⟨0, 0, 1⟩])]
-
-/-! ## Router -/
+/-- The text of every theorem the app shows, read from the source that Lean compiled. -/
+def proofsJson (sources : List String) : Json :=
+  let names := (promiseInfos.flatMap (·.theorems)).map (·.toString)
+  let extra := [``checkTrace_sound, ``verdict_proven_sound, ``free_motion, ``wall_bounce].map (·.toString)
+  Json.mkObj [("proofs", Json.mkObj ((names ++ extra).map fun n =>
+      (n, match sources.findSome? (proofBlock · n) with
+        | some text => Json.str text
+        | none => Json.null))),
+    ("general", Json.arr (extra.map Json.str).toArray),
+    ("axioms", Json.arr #["propext", "Classical.choice", "Quot.sound"])]
 
 /-- A response: the HTTP status and the JSON body. -/
 structure Reply where
   code : Nat
   body : Json
 
-/-- A successful result or a client error, as a reply. -/
-def replyOf (r : Dec Json) : Reply :=
-  match r with
-  | .ok j => ⟨200, j⟩
-  | .error e => ⟨400, Json.mkObj [("error", e)]⟩
-
-/-- What each route accepts, for discovery. -/
-def routeList : List (String × String × String) :=
-  [ ("GET", "/api/health", "Status and contract version."),
-    ("GET", "/api/theorems", "Every theorem, in plain language, with assumptions."),
-    ("GET", "/api/presets", "The ready-made universes."),
-    ("POST", "/api/universe/create", "Make a universe from a preset and seed."),
-    ("POST", "/api/universe/step", "One transition, protected or unprotected."),
-    ("POST", "/api/universe/run", "Many transitions, returning frames."),
-    ("POST", "/api/universe/validate-rules", "What the rule checker says about rules."),
-    ("POST", "/api/universe/check-consistency", "All three consistency layers."),
-    ("POST", "/api/universe/verify-property", "Verdicts for guarantees and claims."),
-    ("POST", "/api/universe/find-counterexample", "Search for a checked counterexample."),
-    ("POST", "/api/universe/check-trace", "Check any trace against the formal model."),
-    ("POST", "/api/universe/check-event", "What protected mode would do with an event."),
-    ("POST", "/api/universe/random-events", "A reproducible list of random events."),
-    ("POST", "/api/universe/audit-laws", "Which conservation laws hold under these laws."),
-    ("POST", "/api/universe/check-formula", "A force formula's curve and whether it is defined.") ]
-
-/-- Handle one request. -/
-def handle (method path : String) (body : String) : Reply :=
+/-- Handle one request, given the text of the proof files. -/
+def handle (method path body : String) (sources : List String) : Reply :=
   let withJson (f : Json → Dec Json) : Reply :=
-    match Json.parse (if body.isEmpty then "{}" else body) with
-    | .ok j => replyOf (f j)
-    | .error e => ⟨400, Json.mkObj [("error", s!"invalid JSON: {e}")]⟩
+    match Json.parse body >>= f with
+    | .ok j => ⟨200, j⟩
+    | .error e => ⟨400, Json.mkObj [("error", e)]⟩
   match method, path with
-  | "GET", "/api/health" =>
-    ⟨200, Json.mkObj [("status", "ok"), ("contractVersion", contractVersion),
-      ("engine", "Lean 4 formal model"),
-      ("routes", encList (fun r => Json.mkObj
-        [("method", r.1), ("path", r.2.1), ("description", r.2.2)]) routeList)]⟩
-  | "GET", "/api/theorems" => ⟨200, Json.mkObj [("theorems", encList encTheorem theorems)]⟩
-  | "GET", "/api/presets" => ⟨200, Json.mkObj [("presets", encList encPreset presets)]⟩
-  | "POST", "/api/universe/create" => withJson routeCreate
-  | "POST", "/api/universe/step" => withJson routeStep
-  | "POST", "/api/universe/run" => withJson routeRun
-  | "POST", "/api/universe/validate-rules" => withJson routeValidateRules
-  | "POST", "/api/universe/check-consistency" => withJson routeCheckConsistency
-  | "POST", "/api/universe/verify-property" => withJson routeVerify
-  | "POST", "/api/universe/find-counterexample" => withJson routeCounterexample
-  | "POST", "/api/universe/check-trace" => withJson routeCheckTrace
-  | "POST", "/api/universe/check-event" => withJson routeCheckEvent
-  | "POST", "/api/universe/random-events" => withJson routeRandomEvents
-  | "POST", "/api/universe/audit-laws" => withJson routeAuditLaws
-  | "POST", "/api/universe/check-formula" => withJson routeCheckFormula
+  | "POST", "/api/create" => ⟨200, routeCreate⟩
+  | "POST", "/api/run" => withJson routeRun
+  | "POST", "/api/verdicts" => withJson routeVerdicts
+  | "GET", "/api/proofs" => ⟨200, proofsJson sources⟩
   | _, _ => ⟨404, Json.mkObj [("error", s!"no route for {method} {path}")]⟩
 
 end Paradox.Api
