@@ -51,6 +51,18 @@ def scale (k : ℚ) (a : Vec3) : Vec3 :=
 def neg (a : Vec3) : Vec3 :=
   ⟨-a.x, -a.y, -a.z⟩
 
+/-- Subtract `b` from `a`, one component at a time. -/
+def sub (a b : Vec3) : Vec3 :=
+  ⟨a.x - b.x, a.y - b.y, a.z - b.z⟩
+
+/-- The dot product of two vectors. -/
+def dot (a b : Vec3) : ℚ :=
+  a.x * b.x + a.y * b.y + a.z * b.z
+
+/-- The cross product of two vectors. -/
+def cross (a b : Vec3) : Vec3 :=
+  ⟨a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x⟩
+
 /-- Component-wise `clampAbs`. -/
 def clampAbs (a : Vec3) (m : ℚ) : Vec3 :=
   ⟨Paradox.clampAbs a.x m, Paradox.clampAbs a.y m, Paradox.clampAbs a.z m⟩
