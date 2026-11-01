@@ -75,12 +75,30 @@ def stepRequest (e : EnvironmentEvent) (mode : String) : Json :=
 #guard answer "/api/universe/step" (stepRequest (.changeMaxSpeed (-1)) "protected") "violations" ==
   Json.arr #[]
 
+-- A guarantee's frame status tells apart what is promised, what merely holds, and what broke.
+#guard guaranteeStatus .boundedVelocity (testWorld [testBody 0 ⟨0, 0, 0⟩ Vec3.zero]) == "proven"
+#guard guaranteeStatus .boundedVelocity (testWorld [testBody 0 ⟨0, 0, 0⟩ ⟨99, 0, 0⟩]) == "violated"
+#guard guaranteeStatus .boundedVelocity { testWorld [testBody 0 ⟨0, 0, 0⟩ Vec3.zero] with
+  rules := [.body .all (.scaleVelocity 2)] } == "unknown"
+
+-- Chaos is reproducible, follows its rate, and carries on from where it stopped.
+#guard chaosEvents safeEventOf 1000 7 5 == chaosEvents safeEventOf 1000 7 5
+#guard chaosEvents safeEventOf 0 7 5 == List.replicate 5 .idle
+#guard chaosEvents safeEventOf 1000 7 5 ==
+  chaosEvents safeEventOf 1000 7 2 ++ chaosEvents safeEventOf 1000 (chaosSeedAfter 7 2) 3
+
+-- A formula's status comes back with its curve.
+#guard answer "/api/universe/check-formula"
+  (Json.mkObj [("formula", encExpr (.div (.const 1) .dist))]) "status" == "underspecified"
+#guard answer "/api/universe/check-formula"
+  (Json.mkObj [("formula", encExpr (.div (.const 1) (.add (.const 1) .dist)))]) "status" == "proven"
+
 -- Limits are enforced.
 #guard codeOf "POST" "/api/universe/run"
   (Json.mkObj [("world", encWorld oneBody), ("steps", (100000 : Nat))]).compress == 400
 
 -- Work limits hold, and lowering search limits still leaves a working search.
-#guard (fitLimits (testWorld ((List.range 200).map fun i => testBody i ⟨0, 0, 0⟩ Vec3.zero)) {}).budget == 1
+#guard (fitLimits (testWorld ((List.range 200).map fun i => testBody i ⟨0, 0, 0⟩ Vec3.zero)) {}).budget == 0
 #guard (fitLimits oneBody {}).budget == 2000
 
 /-- A formula with too many stacked powers. -/

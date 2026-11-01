@@ -145,6 +145,12 @@ open Paradox
 /-- info: 'Paradox.negative_maxSpeed_violates' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms negative_maxSpeed_violates
 
+/-- info: 'Paradox.safeChaos_safe' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms safeChaos_safe
+
+/-- info: 'Paradox.wall_never_speeds_up' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms wall_never_speeds_up
+
 /-- info: 'Paradox.Domains.meadow_run' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms Domains.meadow_run
 

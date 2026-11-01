@@ -117,6 +117,38 @@ def wildEvents (seed : Nat) : Nat → List EnvironmentEvent
   | 0 => []
   | n + 1 => wildEventOf seed :: wildEvents (nextSeed seed) n
 
+/-- One tick of a chaos experiment: with a chance of `rate` in 1000, a random event from `pick`.
+Otherwise nothing happens. -/
+def chaosEventOf (pick : Nat → EnvironmentEvent) (rate s : Nat) : EnvironmentEvent :=
+  if s % 1000 < rate then pick (nextSeed s) else .idle
+
+/-- A reproducible chaos experiment of `n` ticks, drawing from `pick`. -/
+def chaosEvents (pick : Nat → EnvironmentEvent) (rate seed : Nat) : Nat → List EnvironmentEvent
+  | 0 => []
+  | n + 1 => chaosEventOf pick rate seed :: chaosEvents pick rate (nextSeed seed) n
+
+/-- The seed that follows `n` ticks of a chaos experiment, to carry on where it left off. -/
+def chaosSeedAfter (seed : Nat) : Nat → Nat
+  | 0 => seed
+  | n + 1 => chaosSeedAfter (nextSeed seed) n
+
+/-- **Safe chaos is always permitted**, for every seed, rate and length. -/
+theorem safeChaos_allowed (rate seed n : Nat) (w : World) :
+    AllowedTrace step Allowed w (chaosEvents safeEventOf rate seed n) := by
+  induction n generalizing seed w with
+  | zero => exact trivial
+  | succ n ih =>
+    refine ⟨?_, ih _ _⟩
+    unfold chaosEventOf
+    split
+    · exact safeEventOf_allowed _ w
+    · exact trivial
+
+/-- **Safe chaos keeps every guarantee**, however much of it there is. -/
+theorem safeChaos_safe (rate seed n : Nat) (w : World) (h : Guaranteed w) :
+    Guaranteed (run w (chaosEvents safeEventOf rate seed n)) :=
+  guaranteed_run w _ h (safeChaos_allowed rate seed n w)
+
 /-! ## Random worlds -/
 
 /-- The laws of a generated universe. -/

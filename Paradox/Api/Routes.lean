@@ -69,7 +69,7 @@ def ruleOk (r : Rule) : Bool :=
 def maxRunWork : Nat := 5000000
 
 /-- A limit on bodies squared times states searched. -/
-def maxSearchWork : Nat := 2000000
+def maxSearchWork : Nat := 400000
 
 /-- About how many states one unit of search budget visits per level: one per candidate event. -/
 def statesPerBudget : Nat := 12
@@ -179,13 +179,46 @@ def routeStep (j : Json) : Dec Json := do
     ("violations", encList encProperty (violations r.world)),
     ("brokenConstraints", encList encConstraint (brokenConstraints cs r.world))]
 
+/-- What is known about a guarantee in this exact state. `proven` means the theorem covers every
+permitted future from here. `violated` means this state breaks it. `unknown` means it holds now but
+the theorem's conditions do not, so nothing is promised about the future. -/
+def guaranteeStatus (p : Property) (w : World) : String :=
+  if Inv p w then "proven" else if p.holds w then "unknown" else "violated"
+
+/-- The status of every guarantee. -/
+def encGuarantees (w : World) : Json :=
+  Json.mkObj (Property.all.map fun p =>
+    (match p with
+      | .positiveMass => "positiveMass"
+      | .boundedPosition => "boundedPosition"
+      | .boundedVelocity => "boundedVelocity"
+      | .safeEnvironment => "safeEnvironment"
+      | .uniqueIds => "uniqueIds", Json.str (guaranteeStatus p w)))
+
 /-- One frame sent to the renderer. -/
-def encFrame (w : World) (d : Option Decision) : Json :=
+def encFrame (w : World) (e : EnvironmentEvent) (d : Option Decision) : Json :=
   Json.mkObj [("tick", (w.tick : Nat)), ("bodies", encList encBody w.bodies),
+    ("event", encEvent e),
     ("decision", match d with
       | some x => encDecision x
       | none => Json.null),
-    ("violations", encList encProperty (violations w))]
+    ("guarantees", encGuarantees w)]
+
+/-- The events a chaos request adds. -/
+def chaosOf (j : Json) (total : Nat) : Dec (List EnvironmentEvent × Option Nat) :=
+  match optField j "chaos" with
+  | none => pure ([], none)
+  | some c => do
+    let seed ← decNat (← field c "seed")
+    let rate ← decNat (← field c "rate")
+    let kind ← match optField c "kind" with
+      | some k => decStr k
+      | none => pure "safe"
+    let pick ← match kind with
+      | "safe" => pure safeEventOf
+      | "wild" => pure wildEventOf
+      | _ => throw "chaos kind must be 'safe' or 'wild'"
+    pure (chaosEvents pick (min rate 1000) seed total, some (chaosSeedAfter seed total))
 
 def routeRun (j : Json) : Dec Json := do
   let w ← worldField j
@@ -203,16 +236,63 @@ def routeRun (j : Json) : Dec Json := do
   let every ← match optField j "frameEvery" with
     | some s => decNat s
     | none => pure 1
-  let eventAt (i : Nat) : EnvironmentEvent := events.getD i .idle
+  let chaos ← chaosOf j total
+  let eventAt (i : Nat) : EnvironmentEvent :=
+    match events[i]? with
+    | some e => e
+    | none => chaos.1.getD i .idle
   let mut current := w
   let mut frames : Array Json := #[]
   for i in [0:total] do
-    let r := doStep isProt cs current (eventAt i)
+    let e := eventAt i
+    let r := doStep isProt cs current e
     current := r.world
     if every != 0 && (i + 1) % every == 0 then
-      frames := frames.push (encFrame current r.decision)
+      frames := frames.push (encFrame current e r.decision)
   return Json.mkObj [("frames", Json.arr frames), ("world", encWorld current),
-    ("violations", encList encProperty (violations current))]
+    ("guarantees", encGuarantees current),
+    ("nextChaosSeed", match chaos.2 with
+      | some s => (s : Nat)
+      | none => Json.null)]
+
+/-! ## Formula checks -/
+
+/-- A formula's value at distance `r`, with the other inputs from the request. -/
+def formulaAt (i : LawInputs) (e : LawExpr) (r : ℚ) : Option ℚ :=
+  e.evalChecked { i with distSquared := r * r }
+
+def routeCheckFormula (j : Json) : Dec Json := do
+  let e ← decExpr (← field j "formula")
+  unless formulaOk e do throw "the formula is too large"
+  let i : LawInputs :=
+    { massA := ← ratFieldD j "massA" 1
+      massB := ← ratFieldD j "massB" 1
+      chargeA := ← ratFieldD j "chargeA" 1
+      chargeB := ← ratFieldD j "chargeB" 1
+      distSquared := 0
+      speedSquared := ← ratFieldD j "speedSquared" 0 }
+  let rMax ← ratFieldD j "rMax" 20
+  let samples := (List.range 81).map fun n =>
+    let r : ℚ := rMax * (n : ℚ) / 80
+    let value := formulaAt i e r
+    Json.mkObj [("r", approx r),
+      ("force", match value with
+        | some v => approx (v * r)
+        | none => Json.null)]
+  let status : Status × String :=
+    match e.definedness with
+    | .defined => (.proven, "This formula has a defined value for every input with positive mass.")
+    | .undefinedAt _ =>
+      (.underspecified, "This formula divides by zero for some inputs. The simulation uses 0 there.")
+    | .unknown => (.unknown, "The check could not tell whether this formula is always defined.")
+  return Json.mkObj [("status", encStatus status.1), ("explanation", status.2),
+    ("theoremId", match status.1 with
+      | .proven => Json.str (``LawExpr.divisionsSafe_sound).toString
+      | _ => Json.null),
+    ("samples", encList id samples),
+    ("momentumConserved",
+      Json.str "With reaction 1, this formula keeps total momentum, like every formula."),
+    ("momentumTheorem", (``pairForces_conserve_momentum).toString)]
 
 /-! ## Rule checks -/
 
@@ -449,7 +529,8 @@ def routeList : List (String × String × String) :=
     ("POST", "/api/universe/check-trace", "Check any trace against the formal model."),
     ("POST", "/api/universe/check-event", "What protected mode would do with an event."),
     ("POST", "/api/universe/random-events", "A reproducible list of random events."),
-    ("POST", "/api/universe/audit-laws", "Which conservation laws hold under these laws.") ]
+    ("POST", "/api/universe/audit-laws", "Which conservation laws hold under these laws."),
+    ("POST", "/api/universe/check-formula", "A force formula's curve and whether it is defined.") ]
 
 /-- Handle one request. -/
 def handle (method path : String) (body : String) : Reply :=
@@ -476,6 +557,7 @@ def handle (method path : String) (body : String) : Reply :=
   | "POST", "/api/universe/check-event" => withJson routeCheckEvent
   | "POST", "/api/universe/random-events" => withJson routeRandomEvents
   | "POST", "/api/universe/audit-laws" => withJson routeAuditLaws
+  | "POST", "/api/universe/check-formula" => withJson routeCheckFormula
   | _, _ => ⟨404, Json.mkObj [("error", s!"no route for {method} {path}")]⟩
 
 end Paradox.Api

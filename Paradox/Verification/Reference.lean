@@ -75,6 +75,12 @@ theorem moveBody_free {w : World} {b : Body}
   simp only [hportal, Vec3.snap, snap_zero, Bounds.clampPoint, Vec3.add, Vec3.scale,
     clamp_of_mem hx.1 hx.2, clamp_of_mem hy.1 hy.2, clamp_of_mem hz.1 hz.2]
 
+/-- **Walls never speed a body up.** If a bounce keeps at most all of a body's speed, moving it along
+an axis cannot make it faster, in either topology. -/
+theorem wall_never_speeds_up (t : Topology) {e : ℚ} (dt lo hi p v : ℚ) (h0 : 0 ≤ e) (h1 : e ≤ 1) :
+    |(moveAxis t e dt lo hi p v).2| ≤ |v| :=
+  abs_moveAxis_snd_le t dt lo hi p v h0 h1
+
 /-- A velocity already within the limit is not changed by the speed limit. -/
 theorem limitSpeed_of_withinAbs {laws : PhysicsLaws} {b : Body}
     (h : b.velocity.WithinAbs laws.maxSpeed) : limitSpeed laws b = b := by
