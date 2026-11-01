@@ -1,6 +1,7 @@
 import Mathlib.Algebra.Order.Ring.Rat
 import Mathlib.Algebra.Order.Ring.Abs
 import Mathlib.Tactic.Linarith
+import Mathlib.Data.Rat.Floor
 
 /-!
 # Exact-rational vectors and clamping
@@ -26,6 +27,27 @@ def clampAbs (x m : ℚ) : ℚ :=
 
 theorem abs_clampAbs_le (x : ℚ) {m : ℚ} (hm : 0 ≤ m) : |clampAbs x m| ≤ m :=
   abs_le.mpr ⟨le_clamp _ _ _, clamp_le _ (by linarith)⟩
+
+/-- Round `x` toward zero to a multiple of `1 / n`. Used after a bounce, so that repeated bounces
+do not make the exact fractions grow without limit. -/
+def roundTowardZero (n : ℕ) (x : ℚ) : ℚ :=
+  if 0 ≤ x then (⌊x * n⌋ : ℚ) / n else -((⌊-x * n⌋ : ℚ) / n)
+
+/-- Rounding toward zero never makes a number larger in size. -/
+theorem abs_roundTowardZero_le (n : ℕ) (x : ℚ) : |roundTowardZero n x| ≤ |x| := by
+  unfold roundTowardZero
+  rcases Nat.eq_zero_or_pos n with rfl | hn
+  · simp
+  have hn' : (0 : ℚ) < n := by exact_mod_cast hn
+  split_ifs with hx
+  · have h0 : (0 : ℚ) ≤ ⌊x * n⌋ := by exact_mod_cast Int.floor_nonneg.mpr (by positivity)
+    rw [abs_of_nonneg (div_nonneg h0 hn'.le), abs_of_nonneg hx, div_le_iff₀ hn']
+    exact Int.floor_le _
+  · push Not at hx
+    have h0 : (0 : ℚ) ≤ ⌊-x * n⌋ := by
+      exact_mod_cast Int.floor_nonneg.mpr (mul_nonneg (by linarith) hn'.le)
+    rw [abs_neg, abs_of_nonneg (div_nonneg h0 hn'.le), abs_of_neg hx, div_le_iff₀ hn']
+    exact Int.floor_le _
 
 /-- A point, velocity or acceleration in 3D space. -/
 structure Vec3 where

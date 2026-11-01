@@ -19,6 +19,7 @@ inductive EnvironmentEvent where
   | disableGravity
   | changeMaxSpeed (v : ℚ)
   | changeMaxAcceleration (a : ℚ)
+  | changeRestitution (r : ℚ)
   deriving DecidableEq, Repr
 
 namespace EnvironmentEvent
@@ -31,6 +32,7 @@ def applyToLaws : EnvironmentEvent → PhysicsLaws → PhysicsLaws
   | disableGravity, l => { l with gravity := Vec3.zero }
   | changeMaxSpeed v, l => { l with maxSpeed := v }
   | changeMaxAcceleration a, l => { l with maxAcceleration := a }
+  | changeRestitution r, l => { l with restitution := r }
 
 end EnvironmentEvent
 
@@ -50,6 +52,7 @@ def run (w : World) (events : List EnvironmentEvent) : World :=
 def Allowed (_w : World) : EnvironmentEvent → Prop
   | .changeMaxSpeed v => 0 < v
   | .changeMaxAcceleration a => 0 ≤ a
+  | .changeRestitution r => 0 ≤ r ∧ r ≤ 1
   | _ => True
 
 instance (w : World) (e : EnvironmentEvent) : Decidable (Allowed w e) := by

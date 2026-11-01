@@ -8,6 +8,7 @@ import Paradox.Invariants.Mass
 import Paradox.Invariants.Boundedness
 import Paradox.Invariants.Speed
 import Paradox.Invariants.Environment
+import Paradox.Invariants.Bounce
 import Paradox.Verification.Preservation
 import Paradox.Verification.Examples
 import Paradox.Verification.Audit

@@ -3,6 +3,7 @@ import Paradox.Invariants.Mass
 import Paradox.Invariants.Boundedness
 import Paradox.Invariants.Speed
 import Paradox.Invariants.Environment
+import Paradox.Invariants.Bounce
 
 /-!
 # Preservation theorems
@@ -93,16 +94,41 @@ theorem step_preserves_boundedPosition (e : EnvironmentEvent) :
     Preserves BoundedPosition (step · e) :=
   tick_preserves_boundedPosition.comp (applyEvent_preserves_boundedPosition e)
 
+/-! ## Walls never speed a body up -/
+
+/-- A bounce keeps at most the share `e` of the speed, and `e` is at most 1. -/
+theorem abs_wallComponent_le {e : ℚ} (he0 : 0 ≤ e) (he1 : e ≤ 1) (lo hi p v : ℚ) :
+    |wallComponent e lo hi p v| ≤ |v| := by
+  unfold wallComponent
+  split_ifs
+  · calc |roundTowardZero bounceGrid (-(e * v))| ≤ |-(e * v)| := abs_roundTowardZero_le _ _
+      _ = e * |v| := by rw [abs_neg, abs_mul, abs_of_nonneg he0]
+      _ ≤ |v| := mul_le_of_le_one_left (abs_nonneg _) he1
+  · exact le_rfl
+
+/-- **Walls never speed a body up**, whatever the laws: `tick` treats bounciness outside 0 to 1 as
+the nearest end, so no event can make a wall add speed. -/
+theorem wall_never_speeds_up (laws : PhysicsLaws) (bounds : Bounds) (b : Body) :
+    WallNeverSpeedsUp laws bounds b := by
+  have he0 : 0 ≤ clamp laws.restitution 0 1 := le_clamp _ _ _
+  have he1 : clamp laws.restitution 0 1 ≤ 1 := clamp_le _ zero_le_one
+  exact ⟨abs_wallComponent_le he0 he1 _ _ _ _, abs_wallComponent_le he0 he1 _ _ _ _,
+    abs_wallComponent_le he0 he1 _ _ _ _⟩
+
 /-! ## Theorem 3: bounded velocity
 
 Unlike mass and position, this does not factor through `applyEvent`: lowering the speed limit
-leaves bodies temporarily over it, and the velocity clamp in `tick` restores the bound. -/
+leaves bodies temporarily over it, and the velocity clamp in `tick` restores the bound. A bounce
+cannot break it again, by `wall_never_speeds_up`. -/
 
 /-- After a tick, velocities respect the speed limit, provided that limit is non-negative. -/
 theorem tick_boundedVelocity {w : World} (hm : 0 ≤ w.laws.maxSpeed) : BoundedVelocity (tick w) := by
   intro b' hb'
   obtain ⟨b, -, rfl⟩ := mem_tick_bodies hb'
-  exact Vec3.withinAbs_clampAbs _ hm
+  have hfree := Vec3.withinAbs_clampAbs
+    (b.velocity.add ((w.laws.gravity.clampAbs w.laws.maxAcceleration).scale w.laws.timeStep)) hm
+  obtain ⟨hx, hy, hz⟩ := wall_never_speeds_up w.laws w.bounds b
+  exact ⟨hx.trans hfree.1, hy.trans hfree.2.1, hz.trans hfree.2.2⟩
 
 /-- A permitted event leaves a non-negative speed limit non-negative. -/
 theorem allowed_maxSpeed_nonneg {w : World} {e : EnvironmentEvent}
@@ -125,11 +151,12 @@ theorem boundedVelocity_preservesAll : PreservesAll BoundedVelocity step Allowed
   exact tick_boundedVelocity (allowed_maxSpeed_nonneg (hw b hb).limit_nonneg he) b' hb'
 
 theorem safeEnvironment_preservesAll : PreservesAll SafeEnvironment step Allowed := by
-  rintro w e ⟨hb, hs, ha, ht⟩ he
+  rintro w e ⟨hb, hs, ha, ht, hr⟩ he
   cases e with
-  | changeMaxSpeed v => exact ⟨hb, he, ha, ht⟩
-  | changeMaxAcceleration a => exact ⟨hb, hs, he, ht⟩
-  | _ => exact ⟨hb, hs, ha, ht⟩
+  | changeMaxSpeed v => exact ⟨hb, he, ha, ht, hr⟩
+  | changeMaxAcceleration a => exact ⟨hb, hs, he, ht, hr⟩
+  | changeRestitution r => exact ⟨hb, hs, ha, ht, he⟩
+  | _ => exact ⟨hb, hs, ha, ht, hr⟩
 
 /-- All four invariants at once. -/
 def Guaranteed (w : World) : Prop :=

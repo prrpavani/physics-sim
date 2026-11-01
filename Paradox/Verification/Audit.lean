@@ -72,6 +72,9 @@ open Paradox
 /-- info: 'Paradox.negative_maxSpeed_violates_boundedVelocity' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms negative_maxSpeed_violates_boundedVelocity
 
+/-- info: 'Paradox.wall_never_speeds_up' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms wall_never_speeds_up
+
 /-- info: 'Paradox.demoWorld_guaranteed' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms demoWorld_guaranteed
 
@@ -92,12 +95,16 @@ info: [Paradox.Allowed,
  Paradox.Vec3,
  Paradox.World,
  Paradox.applyEvent,
+ Paradox.bounceGrid,
  Paradox.clamp,
  Paradox.clampAbs,
+ Paradox.freeVelocity,
+ Paradox.roundTowardZero,
  Paradox.run,
  Paradox.step,
  Paradox.tick,
  Paradox.tickBody,
+ Paradox.wallComponent,
  Paradox.Bounds.Contains,
  Paradox.Bounds.Valid,
  Paradox.Bounds.clampPoint,
@@ -120,11 +127,15 @@ info: [Paradox.Body,
  Paradox.Vec3,
  Paradox.World,
  Paradox.applyEvent,
+ Paradox.bounceGrid,
  Paradox.clamp,
  Paradox.clampAbs,
+ Paradox.freeVelocity,
+ Paradox.roundTowardZero,
  Paradox.step,
  Paradox.tick,
  Paradox.tickBody,
+ Paradox.wallComponent,
  Paradox.Bounds.clampPoint,
  Paradox.EnvironmentEvent.applyToLaws,
  Paradox.Vec3.WithinAbs,
@@ -135,3 +146,23 @@ info: [Paradox.Body,
  Paradox.Vec3.zero]
 -/
 #guard_msgs in #spec_surface negative_maxSpeed_violates_boundedVelocity
+
+/--
+info: [Paradox.Body,
+ Paradox.Bounds,
+ Paradox.PhysicsLaws,
+ Paradox.Vec3,
+ Paradox.WallNeverSpeedsUp,
+ Paradox.bounceGrid,
+ Paradox.clamp,
+ Paradox.clampAbs,
+ Paradox.freeVelocity,
+ Paradox.roundTowardZero,
+ Paradox.tickBody,
+ Paradox.wallComponent,
+ Paradox.Bounds.clampPoint,
+ Paradox.Vec3.add,
+ Paradox.Vec3.clampAbs,
+ Paradox.Vec3.scale]
+-/
+#guard_msgs in #spec_surface wall_never_speeds_up

@@ -13,6 +13,9 @@ structure PhysicsLaws where
   maxAcceleration : ℚ
   /-- Length of one discrete simulation step. -/
   timeStep : ℚ
+  /-- Bounciness: the share of its speed a body keeps when it hits a wall. 0 stops it; 1 keeps
+  all of it. `tick` treats values outside 0 to 1 as the nearest end. -/
+  restitution : ℚ
   deriving DecidableEq, Repr
 
 /-- The complete state of the simulation at one moment. -/

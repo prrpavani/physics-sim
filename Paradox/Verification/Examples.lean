@@ -19,7 +19,8 @@ def demoWorld : World where
     [ { position := ⟨0, 5, 0⟩, velocity := ⟨1, 0, 0⟩, mass := 1 },
       { position := ⟨-2, 1, 3⟩, velocity := ⟨0, 2, -1⟩, mass := 3 / 2 } ]
   bounds := { minX := -5, maxX := 5, minY := 0, maxY := 10, minZ := -5, maxZ := 5 }
-  laws := { gravity := ⟨0, -10, 0⟩, maxSpeed := 20, maxAcceleration := 30, timeStep := 1 / 10 }
+  laws := { gravity := ⟨0, -10, 0⟩, maxSpeed := 20, maxAcceleration := 30, timeStep := 1 / 10,
+            restitution := 1 / 2 }
 
 /-! ## The hypotheses can be met -/
 
@@ -64,6 +65,10 @@ example : ¬ BoundedVelocity { demoWorld with
 example : ¬ SafeEnvironment { demoWorld with laws.maxSpeed := 0 } := by
   norm_num [SafeEnvironment]
 
+/-- A bounciness above 1 is rejected. -/
+example : ¬ SafeEnvironment { demoWorld with laws.restitution := 3 / 2 } := by
+  norm_num [SafeEnvironment]
+
 /-! ## Exact transition values -/
 
 -- The first sphere falls under gravity: v = (1, -1, 0), p = (1/10, 49/10, 0).
@@ -74,9 +79,23 @@ example : ¬ SafeEnvironment { demoWorld with laws.maxSpeed := 0 } := by
 #guard (step demoWorld .reverseGravity).bodies.head? ==
   some { position := ⟨1 / 10, 51 / 10, 0⟩, velocity := ⟨1, 1, 0⟩, mass := 1 }
 
--- A body is held at the wall: a large time step makes it overshoot, and the clamp catches it.
+-- A body bounces off the walls: a large time step makes it overshoot the right wall and the
+-- floor. It stops at both, and each velocity component that hit a wall reverses at half speed.
 #guard (step { demoWorld with laws.timeStep := 10 } .idle).bodies.head? ==
-  some { position := ⟨5, 0, 0⟩, velocity := ⟨1, -20, 0⟩, mass := 1 }
+  some { position := ⟨5, 0, 0⟩, velocity := ⟨-1 / 2, 10, 0⟩, mass := 1 }
+
+-- With bounciness 0 the body stops dead at the walls it hit.
+#guard (step { demoWorld with laws.timeStep := 10, laws.restitution := 0 } .idle).bodies.head? ==
+  some { position := ⟨5, 0, 0⟩, velocity := ⟨0, 0, 0⟩, mass := 1 }
+
+-- A bounciness above 1 acts as 1 in `tick`, so a wall never adds speed.
+#guard (step { demoWorld with laws.timeStep := 10 } (.changeRestitution 3)).bodies.head? ==
+  some { position := ⟨5, 0, 0⟩, velocity := ⟨-1, 20, 0⟩, mass := 1 }
+
+-- A bounced speed is rounded toward zero, to a thousandth: 7/10 × 1/3 = 0.2333… becomes 0.233.
+#guard wallComponent (7 / 10) 0 1 2 (1 / 3) == -233 / 1000
+#guard wallComponent (7 / 10) 0 1 (-1) (-1 / 3) == 233 / 1000
+#guard wallComponent (7 / 10) 0 1 (1 / 2) (1 / 3) == 1 / 3
 
 -- Lowering the speed limit takes effect immediately.
 #guard ((step demoWorld (.changeMaxSpeed (1 / 2))).bodies.head?.map (·.velocity)) ==
@@ -85,6 +104,10 @@ example : ¬ SafeEnvironment { demoWorld with laws.maxSpeed := 0 } := by
 -- The runnable `Allowed` check gives the right answer on both sides of the limit.
 #guard decide (Allowed demoWorld (.changeMaxSpeed 1))
 #guard !decide (Allowed demoWorld (.changeMaxSpeed 0))
+#guard decide (Allowed demoWorld (.changeRestitution (7 / 10)))
+#guard decide (Allowed demoWorld (.changeRestitution 1))
+#guard !decide (Allowed demoWorld (.changeRestitution (3 / 2)))
+#guard !decide (Allowed demoWorld (.changeRestitution (-1 / 10)))
 #guard decide (AllowedTrace Allowed demoWorld demoEvents)
 #guard !decide (AllowedTrace Allowed demoWorld [.reverseGravity, .changeMaxSpeed (-1)])
 
