@@ -92,7 +92,7 @@
     {"theoremId": "Paradox.checkTrace_sound",
      "status": "counterexample",
      "scope": "allowed",
-     "explanation": "This run of 0 events breaks the claim.",
+     "explanation": "This run of 0 permitted events breaks the claim.",
      "counterexample":
      {"states": [],
       "initial":
@@ -182,11 +182,11 @@
      {"type": "constraint",
       "constraint":
       {"value": "0", "type": "body", "quantity": "speedSquared", "cmp": "eq"}},
-     "assumptions": []},
+     "assumptions": ["Only permitted events are used in this run."]},
     {"theoremId": "Paradox.checkTrace_sound",
      "status": "counterexample",
      "scope": "allowed",
-     "explanation": "This run of 0 events breaks the claim.",
+     "explanation": "This run of 0 permitted events breaks the claim.",
      "counterexample":
      {"states": [],
       "initial":
@@ -276,7 +276,7 @@
      {"type": "constraint",
       "constraint":
       {"value": "25", "type": "body", "quantity": "speedSquared", "cmp": "eq"}},
-     "assumptions": []}]}},
+     "assumptions": ["Only permitted events are used in this run."]}]}},
  "request":
  {"world":
   {"tick": 0,

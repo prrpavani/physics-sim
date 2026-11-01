@@ -278,25 +278,14 @@ def verifyProperty (limits : SearchLimits) (p : Property) (w : World) : Verdict 
         explanation := s!"This run of {t.events.length} permitted events breaks \"{p.name}\"."
         counterexample := some t }
     | none =>
-      match searchCounterexample limits .any (.property p) w with
-      | some t =>
-        { claim := .property p
-          status := .counterexample
-          theoremId := some (``checkTrace_sound).toString
-          assumptions := ["This run uses events a protected universe would reject."]
-          scope := some .any
-          explanation := s!"This run of {t.events.length} events breaks \"{p.name}\". \
-            At least one event is outside what a protected universe permits."
-          counterexample := some t }
-      | none =>
-        { claim := .property p
-          status := .unknown
-          theoremId := none
-          assumptions := [s!"The search tried at most {limits.depth} events in a row."]
-          scope := none
-          explanation := s!"\"{p.name}\" could not be proved, and the search found no run that \
-            breaks it. This does not mean it is true or false."
-          counterexample := none }
+      { claim := .property p
+        status := .unknown
+        theoremId := none
+        assumptions := [s!"The search tried at most {limits.depth} permitted events in a row."]
+        scope := none
+        explanation := s!"\"{p.name}\" could not be proved, and the search found no run of \
+          permitted events that breaks it. This does not mean it is true or false."
+        counterexample := none }
 
 /-- **A proven verdict is correct.** If the verdict for a guarantee is `proven`, the guarantee holds
 after every finite list of permitted events. -/
@@ -307,27 +296,21 @@ theorem verifyProperty_proven {limits : SearchLimits} {p : Property} {w : World}
   split at h
   next hinv => exact (run_inv p w events hinv htrace).2.1
   next =>
-    split at h
-    · simp at h
-    · split at h <;> simp at h
+    split at h <;> simp at h
 
-/-- **A reported counterexample is correct.** Any trace in a verdict has passed the checker. -/
+/-- **A reported counterexample is correct.** Any trace in a verdict has passed the checker, using
+only permitted events. -/
 theorem verifyProperty_counterexample {limits : SearchLimits} {p : Property} {w : World}
     {t : WorldTrace} (h : (verifyProperty limits p w).counterexample = some t) :
-    ∃ scope, checkTrace scope (.property p) t = true := by
+    checkTrace .allowed (.property p) t = true := by
   unfold verifyProperty at h
   split at h
   · simp at h
   · split at h
     next t' ht' =>
       simp only [Option.some.injEq] at h
-      exact ⟨.allowed, h ▸ searchCounterexample_sound ht'⟩
-    next =>
-      split at h
-      next t' ht' =>
-        simp only [Option.some.injEq] at h
-        exact ⟨.any, h ▸ searchCounterexample_sound ht'⟩
-      next => simp at h
+      exact h ▸ searchCounterexample_sound ht'
+    next => simp at h
 
 /-- **Proven and counterexample cannot both be true.** No universe has a proof of a guarantee and a
 checked counterexample using permitted events. -/
@@ -367,27 +350,23 @@ def verifyClaim (limits : SearchLimits) (claim : Claim) (w : World) : Verdict :=
   match fromCover with
   | some v => v
   | none =>
-    let found (scope : EventScope) (t : WorldTrace) : Verdict :=
+    match searchCounterexample limits .allowed claim w with
+    | some t =>
       { claim
         status := .counterexample
         theoremId := some (``checkTrace_sound).toString
-        assumptions := []
-        scope := some scope
-        explanation := s!"This run of {t.events.length} events breaks the claim."
+        assumptions := ["Only permitted events are used in this run."]
+        scope := some .allowed
+        explanation := s!"This run of {t.events.length} permitted events breaks the claim."
         counterexample := some t }
-    match searchCounterexample limits .allowed claim w with
-    | some t => found .allowed t
     | none =>
-      match searchCounterexample limits .any claim w with
-      | some t => found .any t
-      | none =>
-        { claim
-          status := .unknown
-          theoremId := none
-          assumptions := [s!"The search tried at most {limits.depth} events in a row."]
-          scope := none
-          explanation := "This claim could not be proved, and the search found no run that breaks \
-            it. This does not mean it is true or false."
-          counterexample := none }
+      { claim
+        status := .unknown
+        theoremId := none
+        assumptions := [s!"The search tried at most {limits.depth} permitted events in a row."]
+        scope := none
+        explanation := "This claim could not be proved, and the search found no run of permitted \
+          events that breaks it. This does not mean it is true or false."
+        counterexample := none }
 
 end Paradox

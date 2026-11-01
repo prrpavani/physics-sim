@@ -65,6 +65,24 @@ def formulaOk (e : LawExpr) : Bool :=
 def ruleOk (r : Rule) : Bool :=
   r.nodes ≤ maxNodes && r.formulas.all formulaOk
 
+/-- A limit on bodies squared times steps, which is about how much work a run does. -/
+def maxRunWork : Nat := 5000000
+
+/-- A limit on bodies squared times states searched. -/
+def maxSearchWork : Nat := 2000000
+
+/-- About how many states one unit of search budget visits per level: one per candidate event. -/
+def statesPerBudget : Nat := 12
+
+/-- Lower search limits so a large world cannot take too long. A lower limit can only turn a
+counterexample into `unknown`, which stays honest. -/
+def fitLimits (w : World) (l : SearchLimits) : SearchLimits :=
+  let squared := max 1 (w.bodies.length * w.bodies.length)
+  let room := maxSearchWork / squared
+  { l with
+    budget := min l.budget (room / (statesPerBudget * max 1 l.depth))
+    idleSteps := min l.idleSteps room }
+
 /-- Reject a world too large to process. -/
 def checkWorld (w : World) : Dec Unit := do
   if w.bodies.length > maxBodies then throw s!"at most {maxBodies} bodies are supported"
@@ -91,11 +109,11 @@ def eventOf (j : Json) : Dec EnvironmentEvent := do
   checkEvent e
   return e
 
-/-- The search limits of a request. -/
-def limitsOf (j : Json) : Dec SearchLimits :=
+/-- The search limits of a request, lowered to suit this world. -/
+def limitsOf (j : Json) (w : World) : Dec SearchLimits :=
   match optField j "limits" with
-  | some l => decLimits l
-  | none => pure {}
+  | some l => fitLimits w <$> decLimits l
+  | none => pure (fitLimits w {})
 
 /-- Which built-in guarantees are false in this world. -/
 def violations (w : World) : List Property :=
@@ -178,13 +196,17 @@ def routeRun (j : Json) : Dec Json := do
     | some s => decNat s
     | none => pure events.length
   if steps > maxSteps then throw s!"at most {maxSteps} steps per request"
+  if events.length > maxSteps then throw s!"at most {maxSteps} events per request"
+  let total := max steps events.length
+  if w.bodies.length * w.bodies.length * total > maxRunWork then
+    throw "too many bodies for this many steps"
   let every ← match optField j "frameEvery" with
     | some s => decNat s
     | none => pure 1
   let eventAt (i : Nat) : EnvironmentEvent := events.getD i .idle
   let mut current := w
   let mut frames : Array Json := #[]
-  for i in [0:max steps events.length] do
+  for i in [0:total] do
     let r := doStep isProt cs current (eventAt i)
     current := r.world
     if every != 0 && (i + 1) % every == 0 then
@@ -295,7 +317,7 @@ def encTransitionLayer (w : World) : Json :=
 def routeCheckConsistency (j : Json) : Dec Json := do
   let w ← worldField j
   let cs ← listFieldD decConstraint j "constraints"
-  let limits ← limitsOf j
+  let limits ← limitsOf j w
   let props ← listFieldD decProperty j "properties" Property.all
   let claims := props.map Claim.property ++ cs.map Claim.constraint
   return Json.mkObj [("ruleConsistency", encRuleLayer w cs),
@@ -307,7 +329,7 @@ def routeCheckConsistency (j : Json) : Dec Json := do
 
 def routeVerify (j : Json) : Dec Json := do
   let w ← worldField j
-  let limits ← limitsOf j
+  let limits ← limitsOf j w
   let claims ← match optField j "claim", optField j "property" with
     | some c, _ => do pure [← decClaim c]
     | _, some p => do pure [Claim.property (← decProperty p)]
@@ -320,7 +342,7 @@ def routeVerify (j : Json) : Dec Json := do
 
 def routeCounterexample (j : Json) : Dec Json := do
   let w ← worldField j
-  let limits ← limitsOf j
+  let limits ← limitsOf j w
   let claim ← match optField j "claim", optField j "property" with
     | some c, _ => decClaim c
     | _, some p => Claim.property <$> decProperty p
@@ -381,7 +403,7 @@ def routeRandomEvents (j : Json) : Dec Json := do
 
 def routeAuditLaws (j : Json) : Dec Json := do
   let w ← worldField j
-  let limits ← limitsOf j
+  let limits ← limitsOf j w
   let interaction := auditInteractionMomentum w
   let fullStep (d : Vec3) := searchedVerdict limits (.momentumConserved d) .timeOnly "Momentum conservation" w
   return Json.mkObj [

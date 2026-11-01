@@ -79,6 +79,10 @@ def stepRequest (e : EnvironmentEvent) (mode : String) : Json :=
 #guard codeOf "POST" "/api/universe/run"
   (Json.mkObj [("world", encWorld oneBody), ("steps", (100000 : Nat))]).compress == 400
 
+-- Work limits hold, and lowering search limits still leaves a working search.
+#guard (fitLimits (testWorld ((List.range 200).map fun i => testBody i ⟨0, 0, 0⟩ Vec3.zero)) {}).budget == 1
+#guard (fitLimits oneBody {}).budget == 2000
+
 /-- A formula with too many stacked powers. -/
 def towerFormula : LawExpr :=
   .pow (.pow (.pow .dist 16) 16) 16

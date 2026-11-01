@@ -1,0 +1,30 @@
+{
+  "challenge_module": "Paradox.Comparator.Challenge",
+  "solution_module": "Paradox.Comparator.Solution",
+  "theorem_names": [
+    "Paradox.Comparator.run_inv",
+    "Paradox.Comparator.guaranteed_run",
+    "Paradox.Comparator.next_inv",
+    "Paradox.Comparator.protectedRun_safe",
+    "Paradox.Comparator.enforcedRun_holds",
+    "Paradox.Comparator.random_chaos_safe",
+    "Paradox.Comparator.generateWorld_guaranteed",
+    "Paradox.Comparator.keeps_sound",
+    "Paradox.Comparator.checkTrace_sound",
+    "Paradox.Comparator.verifyProperty_proven",
+    "Paradox.Comparator.verifyProperty_counterexample",
+    "Paradox.Comparator.pairForces_conserve_momentum",
+    "Paradox.Comparator.interaction_conserves_momentum",
+    "Paradox.Comparator.idleRun_energy_le",
+    "Paradox.Comparator.idleRun_conserves_mass",
+    "Paradox.Comparator.checkConstraints_satisfiable",
+    "Paradox.Comparator.checkConstraints_contradiction",
+    "Paradox.Comparator.divisionsSafe_sound",
+    "Paradox.Comparator.orderStatus_conflict"
+  ],
+  "permitted_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ]
+}

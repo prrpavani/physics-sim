@@ -300,6 +300,13 @@ def speedCounterexample : Option WorldTrace :=
 -- The search finds a permitted spawn that breaks the population limit.
 #guard (verifyClaim {} (.constraint (.population .le 1)) oneBody).status == .counterexample
 
+-- A rule that is safe but cannot be cleared gets unknown. Events that break the rules on purpose
+-- do not count against it: those are only searched when asked for.
+#guard (verifyProperty {} .boundedPosition { oneBody with
+    rules := [.body (.speedAbove 100000) (.translate ⟨1, 0, 0⟩)] }).status == .unknown
+#guard (searchCounterexample {} .any (.property .boundedPosition) { oneBody with
+    rules := [.body (.speedAbove 100000) (.translate ⟨1, 0, 0⟩)] }).isSome
+
 /-! ## Protected mode -/
 
 /-- Whether protected mode accepted, repaired or rejected the event. -/
