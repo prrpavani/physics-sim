@@ -275,7 +275,9 @@ def verifyProperty (limits : SearchLimits) (p : Property) (w : World) : Verdict 
         theoremId := some (``checkTrace_sound).toString
         assumptions := ["Only permitted events are used in this run."]
         scope := some .allowed
-        explanation := s!"This run of {t.events.length} permitted events breaks \"{p.name}\"."
+        explanation :=
+          if t.events.isEmpty then s!"The universe breaks \"{p.name}\" right now."
+          else s!"This run of {t.events.length} permitted events breaks \"{p.name}\"."
         counterexample := some t }
     | none =>
       { claim := .property p
@@ -357,7 +359,9 @@ def verifyClaim (limits : SearchLimits) (claim : Claim) (w : World) : Verdict :=
         theoremId := some (``checkTrace_sound).toString
         assumptions := ["Only permitted events are used in this run."]
         scope := some .allowed
-        explanation := s!"This run of {t.events.length} permitted events breaks the claim."
+        explanation :=
+          if t.events.isEmpty then "The universe breaks this claim right now."
+          else s!"This run of {t.events.length} permitted events breaks the claim."
         counterexample := some t }
     | none =>
       { claim

@@ -1,8 +1,8 @@
 // The only path to the universe. Every state on screen comes from these calls.
 
 import type {
-  Claim, Constraint, ConsistencyResponse, Decision, EnvironmentEvent, EventScope, Frame, LawExpr, Property,
-  RuleReport, Rule, Status, TheoremInfo, Trace, Verdict, World,
+  Claim, Constraint, ConsistencyResponse, Decision, EnvironmentEvent, EventScope, Frame, FormulaCheck, Guarantees, LawExpr,
+  RuleReport, Rule, RunResponse, Status, TheoremInfo, Trace, Verdict, World,
 } from "../../../shared/types/paradox";
 
 async function post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
@@ -23,18 +23,9 @@ async function get<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-export type GuaranteeStatus = "proven" | "unknown" | "violated";
-export type Guarantees = Record<Property, GuaranteeStatus>;
-export interface LiveFrame extends Omit<Frame, "violations"> {
-  event: EnvironmentEvent;
-  guarantees: Guarantees;
-}
-export interface RunResult {
-  frames: LiveFrame[];
-  world: World;
-  guarantees: Guarantees;
-  nextChaosSeed: number | null;
-}
+export type { Guarantees, FormulaCheck };
+export type LiveFrame = Frame;
+export type RunResult = RunResponse;
 export interface Preset { name: string; title: string; description: string }
 export interface AuditItem {
   status: Status;
@@ -49,14 +40,6 @@ export interface Audit {
   momentumBetweenBodies: AuditItem;
   momentumFullStep: Verdict[];
 }
-export interface FormulaCheck {
-  status: Status;
-  explanation: string;
-  theoremId: string | null;
-  samples: { r: number; force: number | null }[];
-  momentumConserved: string;
-  momentumTheorem: string;
-}
 export interface Chaos { seed: number; rate: number; kind: "safe" | "wild" }
 
 export const api = {
@@ -70,8 +53,9 @@ export const api = {
     constraints?: Constraint[]; chaos?: Chaos;
   }) => post<RunResult>("run", req),
   consistency: (world: World, constraints: Constraint[], signal?: AbortSignal) =>
-    post<ConsistencyResponse>("check-consistency", { world, constraints }, signal),
-  audit: (world: World, signal?: AbortSignal) => post<Audit>("audit-laws", { world }, signal),
+    post<ConsistencyResponse>("check-consistency", { world, constraints, limits: { depth: 2, idleSteps: 32, budget: 200 } }, signal),
+  audit: (world: World, signal?: AbortSignal) =>
+    post<Audit>("audit-laws", { world, limits: { depth: 2, idleSteps: 32, budget: 200 } }, signal),
   validateRule: (rule: Rule, world: World) =>
     post<{ rules: RuleReport[] }>("validate-rules", { rule, world }),
   counterexample: (world: World, claim: Claim, scope: EventScope) =>

@@ -200,12 +200,26 @@ export type Decision =
   | { result: "repaired"; original: EnvironmentEvent; event: EnvironmentEvent }
   | { result: "rejected"; event: EnvironmentEvent };
 
+/**
+ * What is known about a guarantee in one state.
+ * proven: the theorem covers every permitted future from here.
+ * unknown: it holds now, but the theorem's conditions do not, so the future is not promised.
+ * violated: this state breaks it.
+ */
+export type GuaranteeStatus = "proven" | "unknown" | "violated";
+export type Guarantees = Record<Property, GuaranteeStatus>;
+
 export interface Frame {
   tick: number;
   bodies: Body[];
+  /** The event that ran in this step. */
+  event: EnvironmentEvent;
   decision: Decision | null;
-  violations: Property[];
+  guarantees: Guarantees;
 }
+
+/** A reproducible chance per step of a random event. rate is out of 1000. */
+export interface Chaos { seed: number; rate: number; kind: "safe" | "wild" }
 
 export interface SearchLimits { depth?: number; budget?: number; idleSteps?: number }
 
@@ -219,7 +233,23 @@ export interface StepResponse {
   brokenConstraints: Constraint[];
 }
 
-export interface RunResponse { frames: Frame[]; world: World; violations: Property[] }
+export interface RunResponse {
+  frames: Frame[];
+  world: World;
+  guarantees: Guarantees;
+  /** Send this as chaos.seed next time, to carry on the same experiment. */
+  nextChaosSeed: number | null;
+}
+
+export interface FormulaCheck {
+  status: Status;
+  explanation: string;
+  theoremId: string | null;
+  /** The force at each distance, for drawing. `force` is null where the formula has no value. */
+  samples: { r: number; force: number | null }[];
+  momentumConserved: string;
+  momentumTheorem: string;
+}
 
 export interface RuleLayer {
   status: Status;

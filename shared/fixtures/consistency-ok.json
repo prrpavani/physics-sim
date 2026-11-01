@@ -130,7 +130,7 @@
     {"theoremId": "Paradox.checkTrace_sound",
      "status": "counterexample",
      "scope": "allowed",
-     "explanation": "This run of 0 permitted events breaks the claim.",
+     "explanation": "The universe breaks this claim right now.",
      "counterexample":
      {"states": [],
       "initial":

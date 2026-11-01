@@ -89,7 +89,10 @@ function Layer({ tag, title, status, children, defaultOpen, busy }: {
       <button type="button" className="layer-head" aria-expanded={open} onClick={() => setOpen(o => !o)}>
         <span className="layer-tag">{tag}</span>
         <span className="layer-title">{title}</span>
-        {busy ? <span className="spinner" aria-label="Lean is checking" /> : status ? <StatusPill status={status} /> : null}
+        <span className="layer-state">
+          {busy && <span className="spinner" aria-label="Lean is checking" />}
+          {status && <StatusPill status={status} />}
+        </span>
       </button>
       {open && <div className="layer-body">{children}</div>}
     </section>

@@ -10,8 +10,8 @@ universe are actually justified?
 It does not enforce real physics. A strange law is fine, as long as it is well defined and its
 claims hold. When a claim fails, you get a concrete run to watch, checked against the formal model.
 
-**Current state:** the formal engine and backend are done. The 3D frontend is a separate workstream,
-and the contract for it is in [docs/API.md](docs/API.md).
+Everything on screen comes from the Lean model: the browser only draws the exact states it returns,
+and blends between them for smooth motion.
 
 ## Run it
 
@@ -19,8 +19,9 @@ Requires [elan](https://github.com/leanprover/elan). The first install downloads
 Mathlib cache.
 
     make install   # fetch Mathlib, build everything, check every proof and test
-    make run       # start the backend on http://127.0.0.1:8787
-    make demo      # in another terminal: run the demo story against the backend
+    make run       # start the app, then open http://127.0.0.1:8787
+
+Click **Guided demo** for the story. `make demo` runs the same story against the API in a terminal.
 
 ## What you can change
 
@@ -75,6 +76,8 @@ statements with no proofs in the way.
 | `checkConstraints_satisfiable`, `checkConstraints_contradiction` | Layer A's answers are correct. |
 | `orderStatus_conflict`, `LawExpr.divisionsSafe_sound` | Layer B's answers are correct. |
 | `moveBody_free`, `moveAxis_bounce_high`, `moveAxis_bounce_low` | With nothing in the way, motion is exact. At a wall, it is exactly a bounce. |
+| `wall_never_speeds_up` | A wall can slow a body or turn it around, but never speed it up. |
+| `safeChaos_safe` | Safe chaos keeps every guarantee, at any rate and for any seed. |
 | `Domains.meadow_run` | The same engine works for a universe that is not physics. |
 
 The guarantees are: positive mass, every object fully inside the world, every velocity component
@@ -107,15 +110,16 @@ A theorem only says what it says. These matter most:
 - **A `proven` result covers its stated scope only.** Unpermitted events can break any guarantee, and
   `find-counterexample` will show how.
 - **`unknown` says nothing.** The rule checker and search are incomplete by design.
-- **The frontend's floating-point drawing is not verified.** Proofs cover the exact rational states.
+- **The frontend is not verified.** Its floating-point drawing and its blending between frames are not
+  covered. Proofs cover the exact rational states it receives.
 
 ## What is trusted
 
 - The Lean 4 kernel and compiler, and Mathlib v4.35.0.
 - The axioms `propext`, `Classical.choice` and `Quot.sound`. There is no `sorry`, no new axiom and no
   `native_decide`, and `Paradox/Verification/Audit.lean` fails the build if that changes.
-- **The JSON and HTTP layer in `Paradox/Api/`.** It is tested, including exact round trips, but not
-  proved. A bug there could misreport a correct result.
+- **The JSON and HTTP layer in `Paradox/Api/`, and the UI in `apps/frontend/`.** The API layer is tested,
+  including exact round trips, but not proved. A bug in either could misreport a correct result.
 - The definitions each theorem depends on. `Audit.lean` pins the list. There are about 110 for
   `guaranteed_run`, because that theorem is about the whole universe. To review it, start with
   `Paradox/Physics/Kinematics.lean` and `Paradox/Rules/Events.lean`.
@@ -145,5 +149,7 @@ Linux. `.github/workflows/lean.yml` runs `lake check` on each push.
     Paradox/Domains/        a second domain on the same engine
     Paradox/Comparator/     the main statements, for independent checking
     Paradox/Api/            JSON, routes, the server
+    apps/frontend/          the UI source: React, TypeScript, React Three Fiber
+    web/                    the built UI, served by the Lean server
     shared/                 TypeScript types, JSON schema, fixtures
     docs/                   API.md and ARCHITECTURE.md

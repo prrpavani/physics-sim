@@ -108,8 +108,11 @@ the way, a move is exactly textbook motion, and a wall hit is exactly a bounce.
   increases a magnitude, so speed and energy results still hold.
 - **Mathlib stays.** It costs a 7 GB cache, but `field_simp`, `nlinarith` and `linarith` carry the
   conservation proofs.
-- **Lean files stay at the repo root**, not in `formal/`. It keeps `lake` and the Makefile simple. The
-  frontend belongs in `apps/frontend/`.
+- **Lean files stay at the repo root**, not in `formal/`. It keeps `lake` and the Makefile simple.
+- **The built UI is committed in `web/`.** The rules require `make install && make run` to just work, so
+  running the app must not depend on Node. Run `make frontend` after changing `apps/frontend/`.
+- **The frontend has no fallback physics.** Without the backend it shows an error. It keeps no copy of
+  the laws, so it cannot show a state Lean did not compute.
 - **Division by zero gives zero.** Lean functions must be total. Layer B reports when a universe relies
   on this.
 - **Protected-mode constraints work by enforcement.** `enforcedRun_holds` is true for any constraint
