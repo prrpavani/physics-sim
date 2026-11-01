@@ -132,17 +132,20 @@ def chaosSeedAfter (seed : Nat) : Nat → Nat
   | 0 => seed
   | n + 1 => chaosSeedAfter (nextSeed seed) n
 
+/-- A chaos tick is permitted if everything it can pick is permitted. -/
+theorem chaosEventOf_allowed {pick : Nat → EnvironmentEvent} (hp : ∀ s w, Allowed w (pick s))
+    (rate s : Nat) (w : World) : Allowed w (chaosEventOf pick rate s) := by
+  unfold chaosEventOf
+  split
+  · exact hp _ w
+  · exact trivial
+
 /-- **Safe chaos is always permitted**, for every seed, rate and length. -/
 theorem safeChaos_allowed (rate seed n : Nat) (w : World) :
     AllowedTrace step Allowed w (chaosEvents safeEventOf rate seed n) := by
   induction n generalizing seed w with
   | zero => exact trivial
-  | succ n ih =>
-    refine ⟨?_, ih _ _⟩
-    unfold chaosEventOf
-    split
-    · exact safeEventOf_allowed (nextSeed seed) w
-    · exact trivial
+  | succ n ih => exact ⟨chaosEventOf_allowed safeEventOf_allowed rate seed w, ih _ _⟩
 
 /-- **Safe chaos keeps every guarantee**, however much of it there is. -/
 theorem safeChaos_safe (rate seed n : Nat) (w : World) (h : Guaranteed w) :

@@ -44,12 +44,12 @@ def oneBody : World := testWorld [testBody 0 ⟨0, 5, 0⟩ ⟨1, 0, 0⟩]
 /-! ## The hypotheses can be met -/
 
 /-- An event sequence that strengthens, reverses and removes gravity and changes the force law. -/
-def chaosEvents : List EnvironmentEvent :=
+def stressEvents : List EnvironmentEvent :=
   [.changeGravity ⟨0, -100, 0⟩, .reverseGravity, .changeMaxSpeed (1 / 2), .disableGravity,
    .setPairForce (.div (.const 1) .dist), .setReaction 0, .setTopology .torus, .idle]
 
 /-- `guaranteed_run` on a concrete start and event list, with every hypothesis proved. -/
-example : Guaranteed (run (generateWorld 42) chaosEvents) :=
+example : Guaranteed (run (generateWorld 42) stressEvents) :=
   guaranteed_run _ _ (generateWorld_guaranteed 42)
     ⟨trivial, trivial, (by show (0 : ℚ) < 1 / 2; norm_num), trivial, trivial, trivial, trivial,
      trivial, trivial⟩

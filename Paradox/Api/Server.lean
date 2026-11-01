@@ -29,7 +29,7 @@ def contentType (file : String) : String :=
 def staticPath (route : String) : Option String :=
   let path := if route == "/" then "/index.html" else route
   let noParentDirs := (path.splitOn "..").length == 1
-  let known := [".html", ".js", ".css", ".json", ".svg", ".woff2", ".png"].any path.endsWith
+  let known := [".html", ".js", ".css", ".json", ".svg", ".woff2", ".png"].any (fun ext => path.endsWith ext)
   if noParentDirs && known then some s!"web{path}" else none
 
 /-- Serve the API on this machine until the process is stopped. -/
