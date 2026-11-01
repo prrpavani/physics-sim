@@ -22,6 +22,7 @@ def contentType (file : String) : String :=
   else if file.endsWith ".json" then "application/json"
   else if file.endsWith ".svg" then "image/svg+xml"
   else if file.endsWith ".woff2" then "font/woff2"
+  else if file.endsWith ".woff" then "font/woff"
   else if file.endsWith ".png" then "image/png"
   else "text/html; charset=utf-8"
 
@@ -29,7 +30,7 @@ def contentType (file : String) : String :=
 def staticPath (route : String) : Option String :=
   let path := if route == "/" then "/index.html" else route
   let noParentDirs := (path.splitOn "..").length == 1
-  let known := [".html", ".js", ".css", ".json", ".svg", ".woff2", ".png"].any (fun ext => path.endsWith ext)
+  let known := [".html", ".js", ".css", ".json", ".svg", ".woff2", ".woff", ".png"].any (fun ext => path.endsWith ext)
   if noParentDirs && known then some s!"web{path}" else none
 
 /-- Serve the API on this machine until the process is stopped. -/

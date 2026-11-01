@@ -317,8 +317,8 @@ def encRuleReport (w : Option World) (r : Rule) : Json :=
     ("explanation",
       if !missing.isEmpty then "This rule names a region the universe does not have."
       else if r.certified then "This rule keeps every guarantee in every safe universe."
-      else "The checker could not clear this rule for every guarantee. It may still be safe. Use \
-        find-counterexample to look for a run that breaks it.")]
+      else "The checker could not clear this rule for every guarantee. It may still be safe. A search \
+        can look for a run that breaks it.")]
 
 def routeValidateRules (j : Json) : Dec Json := do
   let rules ← match optField j "rule" with
