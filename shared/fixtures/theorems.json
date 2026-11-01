@@ -43,6 +43,13 @@
     "doesNotSay": "Anything about the unsafe generator.",
     "assumptions": ["All guarantees hold at the start."]},
    {"statement":
+    "Safe chaos keeps every guarantee, at any rate and for any seed.",
+    "layer": "evolution",
+    "id": "Paradox.safeChaos_safe",
+    "doesNotSay":
+    "Anything about wild chaos, which may include events that are not permitted.",
+    "assumptions": ["All guarantees hold at the start."]},
+   {"statement":
     "The universe generated from any seed starts with every guarantee true.",
     "layer": "evolution",
     "id": "Paradox.generateWorld_guaranteed",
@@ -108,6 +115,13 @@
      "Box topology.",
      "Mass rate 1.",
      "The target is inside the room."]},
+   {"statement":
+    "A wall can slow a body or turn it around, but never speed it up.",
+    "layer": "evolution",
+    "id": "Paradox.wall_never_speeds_up",
+    "doesNotSay":
+    "Anything about restitution above 1, where a wall really does add speed.",
+    "assumptions": ["Restitution is from 0 to 1."]},
    {"statement":
     "A body that hits a wall stops at the wall and its velocity becomes -e times what it was.",
     "layer": "evolution",

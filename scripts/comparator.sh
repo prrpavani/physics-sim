@@ -10,7 +10,7 @@ docker run --rm --privileged \
   paradox-comparator bash -c '
     set -e
     git config --global --add safe.directory "*"
-    cd /project && tar --exclude=.lake --exclude=.git -cf - . | tar -xf - -C /src
+    cd /project && tar --exclude=.lake --exclude=.git --exclude=node_modules --exclude=./web --exclude=./apps -cf - . | tar -xf - -C /src
     cd /src
     git init -q . 2>/dev/null || true
     lake exe cache get || echo "no usable cache: building what is needed"
