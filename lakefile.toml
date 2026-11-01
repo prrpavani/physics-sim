@@ -12,3 +12,8 @@ name = "Paradox"
 [[lean_exe]]
 name = "paradox"
 root = "Main"
+
+# The web server: serves web/ and runs `step` for the browser.
+[[lean_exe]]
+name = "paradox-server"
+root = "ServerMain"

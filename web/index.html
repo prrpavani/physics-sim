@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PARADOX</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>PARADOX</h1>
+    <p>Invent your own universe, break its laws, and prove what can never happen.</p>
+  </div>
+  <div class="top-right">
+    <div class="mode" role="group" aria-label="Universe mode">
+      <button type="button" data-mode="protected" title="Events and edits that a selected guarantee's proof does not cover are rejected.">Protected</button>
+      <button type="button" data-mode="unprotected" title="Everything runs. Lean checks each state and reports what breaks.">Unprotected</button>
+    </div>
+    <span id="engineBadge" class="badge">Connecting…</span>
+    <form id="seedForm">
+      <label>Universe <input id="seed" type="number" min="0" max="999999999"></label>
+      <button type="submit">Open</button>
+      <button type="button" id="randomSeed">New universe</button>
+    </form>
+  </div>
+</header>
+
+<main>
+  <aside class="left">
+    <section class="panel">
+      <h2>Presets</h2>
+      <div class="presets" id="presets"></div>
+    </section>
+    <section class="panel">
+      <h2>Chaos</h2>
+      <div class="law">
+        <div class="law-head"><label for="randomness">Random events</label><output id="randomnessOut"></output></div>
+        <input type="range" id="randomness" min="0" max="0.1" step="0.005" value="0">
+        <small>Chance of a random change to the laws on each tick, drawn from the seed below. Some are not allowed, such as a negative speed limit.</small>
+      </div>
+      <label class="inline">Event seed <input id="eventSeed" type="number" min="0" max="999999999" value="1"></label>
+    </section>
+    <section class="panel">
+      <h2>Add</h2>
+      <div class="spawn">
+        <button data-spawn="ice"><span class="swatch ice"></span>Ice cube</button>
+        <button data-spawn="water"><span class="swatch water"></span>Water drop</button>
+        <button data-spawn="steam"><span class="swatch steam"></span>Steam puff</button>
+        <button data-spawn="rubber"><span class="swatch rubber"></span>Rubber ball</button>
+      </div>
+    </section>
+    <section class="panel" id="inspector">
+      <h2>Selected</h2>
+      <p class="muted" id="inspectEmpty">Click a body to inspect it.</p>
+      <div id="inspectBody" hidden>
+        <dl id="inspectList"></dl>
+        <form id="editBody" class="edit">
+          <span>Position</span>
+          <input type="number" step="0.1" data-k="position" data-i="0" aria-label="position x">
+          <input type="number" step="0.1" data-k="position" data-i="1" aria-label="position y">
+          <input type="number" step="0.1" data-k="position" data-i="2" aria-label="position z">
+          <span>Velocity</span>
+          <input type="number" step="0.1" data-k="velocity" data-i="0" aria-label="velocity x">
+          <input type="number" step="0.1" data-k="velocity" data-i="1" aria-label="velocity y">
+          <input type="number" step="0.1" data-k="velocity" data-i="2" aria-label="velocity z">
+          <button type="submit">Apply</button>
+          <button type="button" id="speed1000" title="Multiply this body's velocity by 1000">Speed ×1000</button>
+        </form>
+        <div class="row">
+          <button id="pushBody" type="button">Push up</button>
+          <button id="removeBody" type="button" class="danger">Remove</button>
+        </div>
+      </div>
+    </section>
+  </aside>
+
+  <section id="stage">
+    <canvas id="view"></canvas>
+    <div id="toast" hidden></div>
+    <div id="replayBar" hidden>
+      <span id="replayText"></span>
+      <button type="button" id="replayExit">Back to live</button>
+    </div>
+    <p class="hint">Drag to orbit · scroll to zoom · click a body to select it</p>
+  </section>
+
+  <aside class="right">
+    <section class="panel">
+      <h2>Laws of physics</h2>
+      <div class="gravity-buttons">
+        <button type="button" data-gravity="down">↓ Down</button>
+        <button type="button" data-gravity="up">↑ Up</button>
+        <button type="button" data-gravity="side">→ Sideways</button>
+        <button type="button" data-gravity="reverse">⇅ Reverse</button>
+        <button type="button" data-gravity="off">∅ Off</button>
+      </div>
+      <div id="laws"></div>
+    </section>
+    <section class="panel">
+      <h2>Proofs</h2>
+      <p class="muted small">Tick a guarantee to protect it in Protected mode. Click one for its proof.</p>
+      <ul id="guarantees"></ul>
+    </section>
+  </aside>
+</main>
+
+<footer>
+  <div class="transport">
+    <button id="play" type="button" class="primary">Pause</button>
+    <button id="stepOnce" type="button">Step</button>
+    <button id="reset" type="button">Reset</button>
+    <span class="tick">Tick <strong id="tick">0</strong></span>
+    <span class="tick">Bodies <strong id="count">0</strong></span>
+    <label class="tick playback">Playback <input type="range" id="playback" min="0.25" max="4" step="0.25" value="1"> <output id="playbackOut">1×</output></label>
+  </div>
+  <ol id="log"></ol>
+</footer>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
