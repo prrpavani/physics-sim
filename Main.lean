@@ -1,15 +1,17 @@
-import Paradox.Verification.Examples
+import Paradox.Api.Server
+import Paradox.Api.Fixtures
 
-open Paradox
+open Paradox.Api
 
-/-- Runs the formal transition function as compiled code and prints exact rational states. -/
-def main : IO Unit := do
-  let events : List EnvironmentEvent :=
-    [.idle, .reverseGravity, .changeMaxSpeed (1 / 2), .disableGravity]
-  let mut w := demoWorld
-  for e in events do
-    w := step w e
-    IO.println s!"{repr e}"
-    for b in w.bodies do
-      IO.println s!"  position {repr b.position}"
-      IO.println s!"  velocity {repr b.velocity}"
+/-- `paradox serve [port]` runs the API. `paradox fixtures [dir]` writes fixtures. -/
+def main (args : List String) : IO UInt32 := do
+  match args with
+  | ["fixtures"] => writeFixtures "shared/fixtures"; return 0
+  | ["fixtures", dir] => writeFixtures dir; return 0
+  | "serve" :: rest =>
+    let port := (rest.head?.bind String.toNat?).getD 8787
+    serve port.toUInt16
+    return 0
+  | _ =>
+    IO.eprintln "usage: paradox serve [port] | paradox fixtures [dir]"
+    return 1

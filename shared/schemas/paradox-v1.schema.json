@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "paradox-v1",
+  "title": "PARADOX contract, core types",
+  "description": "The types everything else is built from. shared/types/paradox.ts has the full contract. shared/fixtures has real requests and responses.",
+  "$defs": {
+    "rational": {
+      "type": "string",
+      "pattern": "^-?[0-9]+(/[0-9]+)?$",
+      "description": "An exact rational, as sent by the backend."
+    },
+    "status": {
+      "description": "The result of any check.",
+      "oneOf": [
+        { "const": "proven", "description": "Lean checked a theorem establishing this, under the listed assumptions and scope." },
+        { "const": "counterexample", "description": "A concrete run, replayed through the formal model, breaks the claim." },
+        { "const": "unknown", "description": "Neither was established. This is not a failure." },
+        { "const": "underspecified", "description": "Required behaviour is missing, so the simulation relies on a default." },
+        { "const": "inconsistent", "description": "No universe with at least one object can meet these requirements." }
+      ]
+    },
+    "scope": {
+      "enum": ["allowed", "any", "timeOnly"],
+      "description": "allowed: only permitted events. any: every event. timeOnly: no events."
+    },
+    "vec3": {
+      "type": "object",
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": { "$ref": "#/$defs/rational" },
+        "y": { "$ref": "#/$defs/rational" },
+        "z": { "$ref": "#/$defs/rational" }
+      }
+    },
+    "body": {
+      "type": "object",
+      "required": ["id", "shape", "position", "velocity", "mass", "charge"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 0 },
+        "shape": { "type": "object", "required": ["type"] },
+        "position": { "$ref": "#/$defs/vec3" },
+        "velocity": { "$ref": "#/$defs/vec3" },
+        "mass": { "$ref": "#/$defs/rational" },
+        "charge": { "$ref": "#/$defs/rational" },
+        "renderPosition": { "type": "array", "items": { "type": "number" }, "description": "For drawing only." },
+        "renderVelocity": { "type": "array", "items": { "type": "number" }, "description": "For drawing only." },
+        "renderSize": { "type": "number", "description": "For drawing only." }
+      }
+    },
+    "world": {
+      "type": "object",
+      "required": ["bodies", "bounds", "laws", "regions", "portals", "rules", "tick", "nextId"],
+      "properties": {
+        "bodies": { "type": "array", "items": { "$ref": "#/$defs/body" } },
+        "bounds": { "type": "object" },
+        "laws": { "type": "object" },
+        "regions": { "type": "array" },
+        "portals": { "type": "array" },
+        "rules": { "type": "array" },
+        "tick": { "type": "integer", "minimum": 0 },
+        "nextId": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "trace": {
+      "type": "object",
+      "required": ["initial", "events", "states", "final"],
+      "properties": {
+        "initial": { "$ref": "#/$defs/world" },
+        "events": { "type": "array" },
+        "states": { "type": "array", "items": { "$ref": "#/$defs/world" } },
+        "final": { "$ref": "#/$defs/world" }
+      }
+    },
+    "verdict": {
+      "type": "object",
+      "required": ["claim", "status", "theoremId", "assumptions", "scope", "explanation", "counterexample"],
+      "properties": {
+        "status": { "$ref": "#/$defs/status" },
+        "theoremId": { "type": ["string", "null"] },
+        "assumptions": { "type": "array", "items": { "type": "string" } },
+        "scope": { "oneOf": [{ "$ref": "#/$defs/scope" }, { "type": "null" }] },
+        "explanation": { "type": "string" },
+        "counterexample": { "oneOf": [{ "$ref": "#/$defs/trace" }, { "type": "null" }] }
+      }
+    }
+  }
+}

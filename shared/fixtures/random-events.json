@@ -1,0 +1,15 @@
+{"status": 200,
+ "response":
+ {"theoremId": "Paradox.safeEvents_allowed",
+  "seed": 7,
+  "kind": "safe",
+  "events":
+  [{"type": "setPairForce", "formula": {"value": "0", "type": "const"}},
+   {"type": "idle"},
+   {"type": "setTopology", "topology": "box"},
+   {"type": "setMagnetic", "field": {"z": "1", "y": "9/8", "x": "-1/2"}},
+   {"type": "disableGravity"}],
+  "alwaysAllowed": true},
+ "request": {"seed": 7, "kind": "safe", "count": 5},
+ "path": "/api/universe/random-events",
+ "method": "POST"}
