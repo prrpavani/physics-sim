@@ -134,8 +134,8 @@ These all run in `make install`. A failure stops the build:
   the checkers, including a tampered counterexample being refused.
 - Axioms and trusted definitions are pinned for each main theorem.
 
-`scripts/comparator.sh` runs `lake check` and `lake comparator` in a Linux container, since both need
-Linux. `.github/workflows/lean.yml` runs `lake check` on each push.
+`make comparator` runs `lake check` and `lake comparator` in a Linux container, since both need Linux.
+Both pass. `.github/workflows/lean.yml` runs the same script on each push.
 
 ## Layout
 

@@ -90,41 +90,42 @@ export function rule(r: Rule): string {
   }
 }
 
+/** An event as a request. It may have been refused, so it does not say the change happened. */
 export function event(e: EnvironmentEvent): string {
   switch (e.type) {
-    case "idle": return "Time passes";
-    case "reverseGravity": return "Gravity reversed";
-    case "disableGravity": return "Gravity switched off";
-    case "clearFields": return "Fields removed";
-    case "reverseTime": return "Time reversed";
-    case "clearRegions": return "Regions removed";
-    case "clearPortals": return "Portals removed";
-    case "clearRules": return "Rules removed";
-    case "changeGravity": return `Gravity set to ${v3(e.gravity)}`;
-    case "changeMaxSpeed": return `Speed limit set to ${showNum(e.value)}`;
-    case "changeMaxAcceleration": return `Acceleration limit set to ${showNum(e.value)}`;
-    case "changeRestitution": return `Bounciness set to ${showNum(e.value)}`;
-    case "changeTimeStep": return `Time step set to ${showNum(e.value, 3)}`;
-    case "setReaction": return `Reaction factor set to ${showNum(e.value)}`;
-    case "setMassRate": return `Mass rate set to ${showNum(e.value, 3)}`;
-    case "changeBounds": return "World boundary changed";
-    case "addField": return "Field added";
-    case "setPairForce": return `Force law: ${formula(e.formula)}`;
-    case "setDrag": return `Drag: ${formula(e.formula)}`;
-    case "setCentral": return `Central force: ${formula(e.formula)}`;
-    case "setMagnetic": return `Magnetic field set to ${v3(e.field)}`;
-    case "setTopology": return e.topology === "torus" ? "Space loops" : "Space has walls";
-    case "setMetric": return `Distance measured: ${e.metric}`;
-    case "setCollisions": return `Collisions: ${e.mode}`;
-    case "setPopulationLimit": return `Population limit set to ${e.value}`;
-    case "setGrid": return `Grid set to 1/${e.value}`;
-    case "spawnBody": return `Object ${e.body.id} added`;
-    case "removeBody": return `Object ${e.id} removed`;
-    case "applyImpulse": return `Object ${e.id} pushed by ${v3(e.impulse)}`;
-    case "setBodyState": return `Object ${e.id} moved`;
-    case "addRegion": return `Region “${e.region.name}” added`;
-    case "addPortal": return "Portal added";
-    case "addRule": return `Rule added: ${rule(e.rule)}`;
+    case "idle": return "Let time pass";
+    case "reverseGravity": return "Reverse gravity";
+    case "disableGravity": return "Switch off gravity";
+    case "clearFields": return "Remove all fields";
+    case "reverseTime": return "Reverse time";
+    case "clearRegions": return "Remove all regions";
+    case "clearPortals": return "Remove all portals";
+    case "clearRules": return "Remove all rules";
+    case "changeGravity": return `Set gravity to ${v3(e.gravity)}`;
+    case "changeMaxSpeed": return `Set the speed limit to ${showNum(e.value)}`;
+    case "changeMaxAcceleration": return `Set the acceleration limit to ${showNum(e.value)}`;
+    case "changeRestitution": return `Set bounciness to ${showNum(e.value)}`;
+    case "changeTimeStep": return `Set the time step to ${showNum(e.value, 3)}`;
+    case "setReaction": return `Set the reaction factor to ${showNum(e.value)}`;
+    case "setMassRate": return `Set the mass rate to ${showNum(e.value, 3)}`;
+    case "changeBounds": return "Change the world boundary";
+    case "addField": return "Add a field";
+    case "setPairForce": return `Set the force law to ${formula(e.formula)}`;
+    case "setDrag": return `Set drag to ${formula(e.formula)}`;
+    case "setCentral": return `Set the central force to ${formula(e.formula)}`;
+    case "setMagnetic": return `Set the magnetic field to ${v3(e.field)}`;
+    case "setTopology": return e.topology === "torus" ? "Make space loop" : "Give space walls";
+    case "setMetric": return `Measure distance by ${e.metric}`;
+    case "setCollisions": return `Set collisions to ${e.mode}`;
+    case "setPopulationLimit": return `Set the population limit to ${e.value}`;
+    case "setGrid": return `Set the grid to 1/${e.value}`;
+    case "spawnBody": return `Add object ${e.body.id}`;
+    case "removeBody": return `Remove object ${e.id}`;
+    case "applyImpulse": return `Push object ${e.id} by ${v3(e.impulse)}`;
+    case "setBodyState": return `Move object ${e.id}`;
+    case "addRegion": return `Add region “${e.region.name}”`;
+    case "addPortal": return "Add a portal";
+    case "addRule": return `Add rule: ${rule(e.rule)}`;
   }
 }
 
